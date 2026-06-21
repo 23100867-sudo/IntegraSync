@@ -70,6 +70,9 @@ export default function FinanceView({
   const [budgets, setBudgets] = useState<BudgetAllocation[]>([]);
   const [budgetRequests, setBudgetRequests] = useState<BudgetRequestItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<FinanceAuditLog[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [selectedSub, setSelectedSub] = useState<any>(null);
+  const [subRemarks, setSubRemarks] = useState("");
   const [loading, setLoading] = useState(false);
 
   // Search & Filters state
@@ -179,6 +182,10 @@ export default function FinanceView({
       const resAud = await apiCall("/api/finance/audit-logs");
       if (resAud.status === "success") {
         setAuditLogs(resAud.data);
+      }
+      const resSub = await apiCall("/api/liquidation-submissions");
+      if (resSub.status === "success") {
+        setSubmissions(resSub.data);
       }
     } catch (err) {
       console.error("Error loading supplementary finance modules", err);
@@ -355,6 +362,29 @@ export default function FinanceView({
       }
     } catch (err: any) {
       alert(err.message);
+    }
+  }
+
+  // Handle action on liquidation submission under multi-stage flow (Finance officer)
+  async function handleFinanceLiquidationAction(subId: string, action: "Validate" | "Return", remarks: string) {
+    if (action === "Return" && !remarks) {
+      alert("Please enter remarks explaining the grounds for return.");
+      return;
+    }
+    try {
+      const res = await apiCall(`/api/liquidation-submissions/${subId}/finance-action`, {
+        method: "PUT",
+        body: JSON.stringify({ action, remarks: remarks || "Financial documentations validated & endorsed." })
+      });
+      if (res.status === "success") {
+        alert(action === "Validate" ? "Dossier validated and endorsed successfully!" : "Dossier returned to employee with remarks.");
+        setSelectedSub(null);
+        setSubRemarks("");
+        fetchFinanceAddons();
+        onRefresh();
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to process liquidation validation.");
     }
   }
 
@@ -1238,6 +1268,120 @@ export default function FinanceView({
               </div>
             </div>
 
+            {/* FINANCE LIQUIDATION VALIDATION QUEUE */}
+            {isFinanceOrAdmin && (
+              <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                <h2 className="text-xs font-bold font-sans text-slate-800 uppercase tracking-tight flex items-center">
+                  <Clock size={15} className="mr-2 text-emerald-600 animate-pulse" />
+                  Finance Liquidation Validation Queue ({submissions.filter(s => s.status === "Verified & Forwarded").length})
+                </h2>
+                <p className="text-[11px] text-slate-500">Validate receipts, invoices, and ledger documents approved by HR. Execute final verification before forwarding to Division Chief endorsement.</p>
+
+                <div className="grid grid-cols-1 gap-4">
+                  {submissions.filter(s => s.status === "Verified & Forwarded").length > 0 ? (
+                    submissions.filter(s => s.status === "Verified & Forwarded").map((sub) => (
+                      <div key={sub.id} className="p-4 border border-emerald-100 rounded-xl bg-emerald-50/10 hover:border-emerald-200 transition-all flex flex-col md:flex-row justify-between gap-4">
+                        <div className="space-y-3 flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                              {sub.submissionNo}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">{sub.createdAt?.split("T")[0]}</span>
+                          </div>
+
+                          <div>
+                            <h3 className="text-xs font-bold text-slate-800">{sub.employeeName}</h3>
+                            <p className="text-[11px] text-slate-500 mt-1">
+                              <strong>Activity ID:</strong> {sub.activityId} • <span className="text-blue-600 font-medium">Verified by HR</span>
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-w-md">
+                            <div className="bg-white p-2 rounded border border-slate-100">
+                              <span className="text-[9px] text-slate-400 font-semibold block font-mono">Released Advance</span>
+                              <strong className="text-xs text-slate-700 font-mono">₱{sub.totalReleased.toLocaleString()}</strong>
+                            </div>
+                            <div className="bg-white p-2 rounded border border-slate-100">
+                              <span className="text-[9px] text-slate-400 font-semibold block font-mono">Liquidated Spent</span>
+                              <strong className="text-xs text-blue-600 font-mono">₱{sub.totalSpent.toLocaleString()}</strong>
+                            </div>
+                            <div className="bg-white p-2 rounded border border-slate-100">
+                              <span className="text-[9px] text-slate-400 font-semibold block font-mono">Net Balance / Refund</span>
+                              <strong className="text-xs text-amber-700 font-black font-mono">₱{sub.remainingBalance.toLocaleString()}</strong>
+                            </div>
+                          </div>
+
+                          {sub.remarks && (
+                            <div className="bg-white p-2 rounded border border-slate-100 text-[11px] text-slate-500 italic">
+                              "{sub.remarks}"
+                            </div>
+                          )}
+
+                          {/* HR Verification remarks summary */}
+                          <div className="bg-blue-50/40 p-2.5 rounded border border-blue-100 max-w-md text-[10px] text-slate-600">
+                            <strong>HR Verification Remarks:</strong>
+                            <p className="mt-0.5 font-sans">"{sub.hrRemarks || 'Verified expenditures relative to assigned activity.'}"</p>
+                          </div>
+
+                          {/* Render Supporting Docs / Receipts */}
+                          {sub.supportingDocs && sub.supportingDocs.length > 0 && (
+                            <div className="space-y-1.5 max-w-md">
+                              <span className="text-[9px] text-slate-400 font-bold uppercase block font-mono tracking-wider">Receipts & Slips File Vouchers</span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {sub.supportingDocs.map((doc: any, i: number) => (
+                                  <div key={i} className="flex items-center space-x-1 py-1 px-2.5 bg-white border border-slate-150 rounded text-[10px] text-slate-600 font-mono">
+                                    <FileText size={10} className="text-slate-405" />
+                                    <span>{doc.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* FINANCE ACTION BAR */}
+                        <div className="w-full md:w-64 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 flex flex-col justify-between">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Ledger Validation remarks</label>
+                            <textarea
+                              placeholder="Add ledger match audit logs..."
+                              value={selectedSub?.id === sub.id ? subRemarks : ""}
+                              onChange={(e) => {
+                                setSelectedSub(sub);
+                                setSubRemarks(e.target.value);
+                              }}
+                              className="w-full border border-slate-200 bg-white p-2 rounded-lg text-xs h-16 resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          </div>
+
+                          <div className="flex gap-2 justify-end pt-3">
+                            <button
+                              type="button"
+                              onClick={() => handleFinanceLiquidationAction(sub.id, "Return", selectedSub?.id === sub.id ? subRemarks : "")}
+                              className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer"
+                            >
+                              Return
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFinanceLiquidationAction(sub.id, "Validate", selectedSub?.id === sub.id ? subRemarks : "")}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 px-3 py-1.5 rounded-lg text-xs font-semibold shadow shadow-emerald-600/10 cursor-pointer"
+                            >
+                              Validate & Endorse
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-400 font-mono text-[10px] py-8 border border-dashed border-slate-200 rounded-xl text-center bg-slate-50/50">
+                      No liquidation reports verified by HR awaiting Financial validation.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* LIQUIDATIONS INDEX TABLE */}
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <table className="w-full text-left text-xs border-collapse">
@@ -1683,26 +1827,32 @@ export default function FinanceView({
                           </td>
                           <td className="p-4 text-center">
                             {req.status === "Pending" ? (
-                              <div className="flex gap-1.5 justify-center">
-                                <button
-                                  onClick={() => handleActionBudgetRequest(req.id, "Approved")}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer"
-                                >
-                                  Approve & Allot
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    const rem = prompt("State reasons for return / realignment rejection:");
-                                    if (rem !== null) handleActionBudgetRequest(req.id, "Returned", rem);
-                                  }}
-                                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer"
-                                >
-                                  Return & Reject
-                                </button>
-                              </div>
+                              user.role === UserRole.SUPER_ADMIN ? (
+                                <div className="flex gap-1.5 justify-center">
+                                  <button
+                                    onClick={() => handleActionBudgetRequest(req.id, "Approved")}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer"
+                                  >
+                                    Approve & Allot
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const rem = prompt("State reasons for return / realignment rejection:");
+                                      if (rem !== null) handleActionBudgetRequest(req.id, "Returned", rem);
+                                    }}
+                                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-2 py-1 rounded text-[10px] cursor-pointer"
+                                  >
+                                    Return & Reject
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 font-mono italic">
+                                  Awaiting Division Chief Concurrence
+                                </span>
+                              )
                             ) : (
                               <span className="text-[10px] italic text-slate-400 font-mono">
-                                {req.remarks ? `${req.status}: ${req.remarks}` : `No further action`}
+                                {req.remarks ? `${req.status}: ${req.remarks}` : `Approved by ${req.approvedBy || "Division Chief"}`}
                               </span>
                             )}
                           </td>

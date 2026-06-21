@@ -1440,8 +1440,8 @@ app.post("/api/finance/budget-requests/:id/action", authenticateToken, (req: any
   const { id } = req.params;
   const { action, remarks } = req.body; // Approved or Returned
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
-    return res.status(403).json({ status: "error", message: "Only Budget or Finance Officers can process budget requests." });
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Only the Division Chief has concession authority to approve/return budget request adjustments." });
   }
 
   const reqItem = db.budgetRequests?.find(r => r.id === id);
@@ -1451,6 +1451,7 @@ app.post("/api/finance/budget-requests/:id/action", authenticateToken, (req: any
 
   reqItem.status = action;
   reqItem.remarks = remarks;
+  reqItem.approvedBy = req.user.fullName;
 
   if (action === "Approved") {
     const budget = db.budgetAllocations.find(b => b.department === reqItem.department);
@@ -1473,6 +1474,52 @@ app.post("/api/finance/budget-requests/:id/action", authenticateToken, (req: any
   }
 
   logEvent(req.user.id, req.user.username, req.user.role, `${action} Budget Request`, `${action} budget request ${id} with remarks: ${remarks}`);
+  saveDB();
+  res.json({ status: "success", data: reqItem });
+});
+
+app.get("/api/budget-requests", authenticateToken, (req, res) => {
+  res.json({ status: "success", data: db.budgetRequests || [] });
+});
+
+app.put("/api/budget-requests/:id/approve", authenticateToken, (req: any, res) => {
+  const { id } = req.params;
+  const { status, remarks } = req.body;
+
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Only the Division Chief has concession authority to approve/return budget request adjustments." });
+  }
+
+  const reqItem = db.budgetRequests?.find(r => r.id === id);
+  if (!reqItem) {
+    return res.status(404).json({ status: "error", message: "Budget request not found" });
+  }
+
+  reqItem.status = status;
+  reqItem.remarks = remarks || "";
+  reqItem.approvedBy = req.user.fullName;
+
+  if (status === "Approved") {
+    const budget = db.budgetAllocations.find(b => b.department === reqItem.department);
+    if (budget) {
+      const oldAllocation = budget.budgetAllocation;
+      budget.budgetAllocation += reqItem.amountRequested;
+      budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
+      budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
+      logFinanceAudit(req.user.fullName, `Augment Budget Allocation (Chief Concurrence) ${reqItem.id}`, "Budget Monitoring", `${oldAllocation}`, `${budget.budgetAllocation}`);
+    } else {
+      db.budgetAllocations.push({
+        id: `b-${Date.now()}`,
+        department: reqItem.department,
+        budgetAllocation: reqItem.amountRequested,
+        budgetUtilized: 0,
+        remainingBudget: reqItem.amountRequested,
+        budgetPercentageUsed: 0
+      });
+    }
+  }
+
+  logEvent(req.user.id, req.user.username, req.user.role, `Resolve Budget Request: ${status}`, `${status} budget request ${id} with comments: ${remarks}`);
   saveDB();
   res.json({ status: "success", data: reqItem });
 });
@@ -1793,81 +1840,13 @@ app.post("/api/requests", authenticateToken, (req: any, res) => {
   res.json({ status: "success", data: fullReq });
 });
 
-// Appraise and adjudicate Requests index status
+// Old Appraise and adjudicate Requests index status has been deprecated for security compliance.
 app.put("/api/requests/:id/approve", authenticateToken, (req: any, res) => {
-  const { id } = req.params;
-  const { status, remarks } = req.body;
-
-  const request = db.requests.find(r => r.id === id);
-  if (!request) {
-    return res.status(404).json({ status: "error", message: "Service request ledger entry not found" });
-  }
-
-  // Authorize based on request types and role requirements:
-  // - Leave Requests: Dept Head or HR or Admin
-  // - Service Records: HR or Admin
-  // - Vehicle Requests: Dept Head or Admin
-  // - Zoom Access: Dept Head or Admin/IT
-  // - Supply Requests: Custodian or Admin
-  const role = req.user.role;
-  let authorized = false;
-
-  if (role === UserRole.SUPER_ADMIN || role === UserRole.HR_OFFICER) {
-    authorized = true;
-  }
-
-  if (!authorized) {
-    return res.status(403).json({ status: "error", message: `Your role [${role}] is unauthorized to approve ${request.requestType}` });
-  }
-
-  request.status = status as RequestStatus;
-  request.approvedBy = req.user.fullName;
-  request.remarks = remarks || `Reviewed and approved under departmental rules.`;
-
-  // If Supply request is APPROVED, trigger deduction from inventory
-  if (request.requestType === RequestType.SUPPLY && status === RequestStatus.APPROVED) {
-    const supplyReq = request as any;
-    const supply = db.supplyItems.find(s => s.id === supplyReq.supplyId || s.name === supplyReq.supplyName);
-    if (supply) {
-      if (supply.availableQuantity >= supplyReq.quantity) {
-        supply.availableQuantity -= supplyReq.quantity;
-        // Add as a supply issuance receipt
-        db.supplyIssuances.push({
-          id: `si-${Date.now()}`,
-          supplyId: supply.id,
-          supplyName: supply.name,
-          issuedToId: supplyReq.employeeId,
-          issuedToName: supplyReq.employeeName,
-          quantity: supplyReq.quantity,
-          dateIssued: new Date().toISOString().split("T")[0]
-        });
-      } else {
-        request.status = RequestStatus.REJECTED;
-        request.remarks = "Disapproved: Requested quantity exceeds current available shelf inventory stock.";
-      }
-    }
-  }
-
-  logEvent(req.user.id, req.user.username, req.user.role, "Act on Request", `Adjudicated request ID: ${request.id} for "${request.employeeName}" to state: [${request.status}]`);
-  
-  if (!db.notifications) {
-    db.notifications = [];
-  }
-  db.notifications.push({
-    id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    title: `Request ${request.status}`,
-    message: `The ${request.requestType} submitted by ${request.employeeName} has been ${request.status === RequestStatus.APPROVED ? "Approved" : "Rejected"}.`,
-    type: request.status === RequestStatus.APPROVED ? "success" : "warning",
-    isRead: false,
-    timestamp: new Date().toISOString(),
-    targetRole: UserRole.EMPLOYEE // standard notification readable on personnel portal desk
+  return res.status(400).json({ 
+    status: "error", 
+    message: "This shortcut approval endpoint has been disabled for workflow safety. Please use /api/requests/:id/hr-endorse and /api/requests/:id/chief-decide to follow the mandated two-stage approval governance." 
   });
-
-  saveDB();
-  res.json({ status: "success", data: request });
 });
-
-
 // 6. Role-Based Dashboards & Analytics
 app.get("/api/dashboard/summary", authenticateToken, (req: any, res) => {
   const role = req.user.role;
@@ -2244,6 +2223,57 @@ app.post("/api/liquidation-submissions", authenticateToken, (req: any, res) => {
   logEvent(req.user.id, req.user.username, req.user.role, "Submit Liquidation", `Submitted liquidation report: ${subNo}`);
   saveDB();
   res.json({ status: "success", data: newSub });
+});
+
+app.put("/api/liquidation-submissions/:id/resubmit", authenticateToken, (req: any, res) => {
+  const { id } = req.params;
+  const { totalSpent, remarks, supportingDocs } = req.body;
+
+  const sub = db.liquidationSubmissions.find(l => l.id === id);
+  if (!sub) {
+    return res.status(404).json({ status: "error", message: "Submission records not found" });
+  }
+
+  if (sub.employeeId !== req.user.employeeId && req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Forbidden: You cannot resubmit this report details." });
+  }
+
+  // Update details
+  sub.totalSpent = Number(totalSpent || 0);
+  sub.remainingBalance = sub.totalReleased - sub.totalSpent;
+  sub.remarks = remarks || sub.remarks;
+  
+  if (supportingDocs && supportingDocs.length > 0) {
+    // Append unique documents to keep version history
+    const uniqueDocs = [...sub.supportingDocs];
+    for (const d of supportingDocs) {
+      if (!uniqueDocs.some(existing => existing.name === d.name)) {
+        uniqueDocs.push(d);
+      }
+    }
+    sub.supportingDocs = uniqueDocs;
+  }
+
+  // Revert statuses for workflow loop re-execution
+  sub.status = "Pending HR Review";
+  sub.hrStatus = "Pending Review";
+  sub.financeStatus = "Pending Validation";
+  sub.divisionChiefStatus = "Pending Chief Approval";
+
+  if (!db.notifications) db.notifications = [];
+  db.notifications.push({
+    id: `notif-${Date.now()}`,
+    title: "Liquidation Report Resubmitted",
+    message: `${req.user.fullName} corrected and resubmitted liquidation report ${sub.submissionNo}.`,
+    isRead: false,
+    type: "info",
+    timestamp: new Date().toISOString(),
+    targetRole: UserRole.HR_OFFICER
+  });
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Resubmit Liquidation", `Resubmitted liquidation report: ${sub.submissionNo}`);
+  saveDB();
+  res.json({ status: "success", data: sub });
 });
 
 app.put("/api/liquidation-submissions/:id/hr-action", authenticateToken, (req: any, res) => {

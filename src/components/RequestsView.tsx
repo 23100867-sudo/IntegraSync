@@ -35,6 +35,51 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
   // Selected review item
   const [selectedReviewReq, setSelectedReviewReq] = useState<AnyRequest | null>(null);
 
+  // Liquidation verification queue states
+  const [liqSubmissions, setLiqSubmissions] = useState<any[]>([]);
+  const [liqRemarks, setLiqRemarks] = useState("");
+  const [selectedLiqSub, setSelectedLiqSub] = useState<any>(null);
+
+  useEffect(() => {
+    if (user.role === UserRole.HR_OFFICER || user.role === UserRole.SUPER_ADMIN) {
+      fetchLiquidationSubmissions();
+    }
+  }, [user.role, requests]);
+
+  async function fetchLiquidationSubmissions() {
+    try {
+      const res = await apiCall("/api/liquidation-submissions");
+      if (res.status === "success") {
+        // filter for those pending HR action or general ones to view status
+        setLiqSubmissions(res.data);
+      }
+    } catch (err) {
+      console.error("Error loading liquidation submissions for HR check", err);
+    }
+  }
+
+  async function handleHRLiquidationAction(submissionId: string, action: "Verify" | "Return", comments: string) {
+    if (action === "Return" && !comments) {
+      alert("Specify remarks/reasons for returning this submission.");
+      return;
+    }
+    try {
+      const res = await apiCall(`/api/liquidation-submissions/${submissionId}/hr-action`, {
+        method: "PUT",
+        body: JSON.stringify({ action, remarks: comments || "Verified & forwarded by HR" })
+      });
+      if (res.status === "success") {
+        alert(action === "Verify" ? "Liquidation report verified and forwarded to Financial validation queue!" : "Liquidation report returned to employee.");
+        fetchLiquidationSubmissions();
+        setSelectedLiqSub(null);
+        setLiqRemarks("");
+        onRefresh();
+      }
+    } catch (err: any) {
+      alert(err.message || "Action on liquidation failed.");
+    }
+  }
+
   // Leave Form Fields
   const [leaveForm, setLeaveForm] = useState({
     leaveType: "Sick Leave" as any,
@@ -138,18 +183,22 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
     }
   }
 
-  // Act on approvals (Approve / Reject)
-  async function handleActionRequest(targetId: string, finalStatus: RequestStatus) {
+  // Act on HR Endorsement or Return
+  async function handleHREndorse(targetId: string, endorse: boolean) {
+    if (!endorse && !approvalParams.remarks) {
+      alert("Please provide comments/remarks specifying why the request is being returned.");
+      return;
+    }
     try {
-      const res = await apiCall(`/api/requests/${targetId}/approve`, {
+      const res = await apiCall(`/api/requests/${targetId}/hr-endorse`, {
         method: "PUT",
         body: JSON.stringify({
-          status: finalStatus,
-          remarks: approvalParams.remarks || `Action taken as ${user.fullName}`
+          endorse,
+          remarks: approvalParams.remarks || `Endorsed under HR standards by ${user.fullName}.`
         })
       });
       if (res.status === "success") {
-        alert(`Service Request has been ${finalStatus === RequestStatus.APPROVED ? "APPROVED" : "REJECTED"} successfully!`);
+        alert(endorse ? "Personnel request has been HR-Endorsed to the Division Chief!" : "Personnel request has been returned to the employee with remarks.");
         setSelectedReviewReq(null);
         setApprovalParams({ remarks: "" });
         onRefresh();
@@ -163,8 +212,8 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
   // Determine if a user has approval authority over an active request
   function canUserApprove(req: AnyRequest): boolean {
     const role = user.role;
-    if (role === UserRole.SUPER_ADMIN) return true;
-    return role === UserRole.HR_OFFICER;
+    // HR is the only one who can endorse to chief (Admin can too)
+    return (role === UserRole.HR_OFFICER || role === UserRole.SUPER_ADMIN) && req.status === RequestStatus.PENDING;
   }
 
   // Classify request lists based on perspective
@@ -264,6 +313,112 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
         </section>
       )}
 
+      {/* HR LIQUIDATION VERIFICATION QUEUE (FOR HR OFFICER or CHIEF) */}
+      {(user.role === UserRole.HR_OFFICER || user.role === UserRole.SUPER_ADMIN) && (
+        <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+          <h2 className="text-xs font-bold font-sans text-slate-800 uppercase tracking-tight flex items-center">
+            <ClipboardList size={15} className="mr-2 text-blue-500 animate-pulse" />
+            HR Liquidation Verification Queue ({liqSubmissions.filter(s => s.status === "Pending HR Review").length})
+          </h2>
+          <p className="text-[11px] text-slate-500">Verify requested employee travel expenditures and activities relationship before forwarding to Finance validation.</p>
+
+          <div className="grid grid-cols-1 gap-4">
+            {liqSubmissions.filter(s => s.status === "Pending HR Review").length > 0 ? (
+              liqSubmissions.filter(s => s.status === "Pending HR Review").map((sub) => (
+                <div key={sub.id} className="p-4 border border-blue-100 rounded-xl bg-blue-50/10 hover:border-blue-200 transition-all flex flex-col md:flex-row justify-between gap-4">
+                  <div className="space-y-3 flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-mono bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full">
+                        {sub.submissionNo}
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">{sub.createdAt?.split("T")[0]}</span>
+                    </div>
+
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-800">{sub.employeeName}</h3>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        <strong>Assigned Activity Reference:</strong> {sub.activityId}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-w-md">
+                      <div className="bg-white p-2 rounded border border-slate-100">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block font-mono">Released Advanced</span>
+                        <strong className="text-xs text-slate-700">₱{sub.totalReleased.toLocaleString()}</strong>
+                      </div>
+                      <div className="bg-white p-2 rounded border border-slate-100">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block font-mono">Liquidated Spent</span>
+                        <strong className="text-xs text-slate-700">₱{sub.totalSpent.toLocaleString()}</strong>
+                      </div>
+                      <div className="bg-white p-2 rounded border border-slate-100">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block font-mono">Remaining Balance</span>
+                        <strong className="text-xs text-slate-700">₱{sub.remainingBalance.toLocaleString()}</strong>
+                      </div>
+                    </div>
+
+                    {sub.remarks && (
+                      <p className="text-[11px] text-slate-600 italic bg-white p-2 rounded border border-slate-50 font-sans">
+                        "{sub.remarks}"
+                      </p>
+                    )}
+                    
+                    {sub.supportingDocs && sub.supportingDocs.length > 0 && (
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-400 font-bold uppercase block font-mono">Receipts / Invoices</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {sub.supportingDocs.map((doc: any, i: number) => (
+                            <span key={i} className="px-2 py-0.5 bg-slate-100 rounded text-[10px] text-slate-600 font-mono">
+                              {doc.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ACTION CORNER */}
+                  <div className="w-full md:w-64 border-t md:border-t-0 md:border-l border-slate-100 pt-3 md:pt-0 md:pl-4 flex flex-col justify-between">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Verification Remarks</label>
+                      <textarea
+                        placeholder="Add remarks for verification check..."
+                        value={selectedLiqSub?.id === sub.id ? liqRemarks : ""}
+                        onChange={(e) => {
+                          setSelectedLiqSub(sub);
+                          setLiqRemarks(e.target.value);
+                        }}
+                        className="w-full border border-slate-200 bg-white p-2 rounded-lg text-xs h-16 resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-3">
+                      <button
+                        type="button"
+                        onClick={() => handleHRLiquidationAction(sub.id, "Return", selectedLiqSub?.id === sub.id ? liqRemarks : "")}
+                        className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer"
+                      >
+                        Return
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleHRLiquidationAction(sub.id, "Verify", selectedLiqSub?.id === sub.id ? liqRemarks : "")}
+                        className="bg-blue-600 hover:bg-blue-700 text-white border border-blue-600 px-3 py-1.5 rounded-lg text-xs font-semibold shadow shadow-blue-600/10 cursor-pointer"
+                      >
+                        Verify & Forward
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-slate-400 font-mono text-[10px] py-6 border border-dashed border-slate-200 rounded-xl text-center bg-slate-50/50">
+                No liquidation reports awaiting HR verification.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* DETAILED ADJUDICATION WORKSPACE DRAWER FOR MANAGER ACTION */}
       {selectedReviewReq && (
         <div className="bg-amber-50/40 border border-amber-200 rounded-xl p-5 shadow-inner space-y-4">
@@ -329,7 +484,7 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
                 <label className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold block">Office Action Remarks / Comments *</label>
                 <textarea
                   required
-                  placeholder="Approve with remarks like 'Leave form logged with HR' or 'Deducted from Stock room Cabinet B'."
+                  placeholder="Explain endorsement parameters or grounds for returning the request."
                   value={approvalParams.remarks}
                   onChange={(e) => setApprovalParams({ remarks: e.target.value })}
                   className="w-full border border-slate-200 bg-white p-2 rounded-lg text-xs h-20"
@@ -339,17 +494,17 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
               <div className="flex gap-2 justify-end pt-4">
                 <button
                   type="button"
-                  onClick={() => handleActionRequest(selectedReviewReq.id, RequestStatus.REJECTED)}
-                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2 rounded-lg text-xs font-semibold"
+                  onClick={() => handleHREndorse(selectedReviewReq.id, false)}
+                  className="bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 px-4 py-2 rounded-lg text-xs font-semibold"
                 >
-                  Disapprove Request
+                  Return to Employee
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleActionRequest(selectedReviewReq.id, RequestStatus.APPROVED)}
+                  onClick={() => handleHREndorse(selectedReviewReq.id, true)}
                   className="bg-slate-900 hover:bg-slate-800 text-white border border-slate-850 px-5 py-2 rounded-lg text-xs font-semibold shadow"
                 >
-                  Approve and Certified
+                  Endorse to Chief
                 </button>
               </div>
             </div>

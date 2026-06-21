@@ -15,7 +15,8 @@ import {
   DollarSign, 
   Paperclip,
   Trash2,
-  Bell
+  Bell,
+  Package
 } from "lucide-react";
 
 interface EmployeePortalViewProps {
@@ -57,6 +58,7 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
   const [attachedFiles, setAttachedFiles] = useState<{ id: string; name: string; type: string; filename: string; uploadedAt: string }[]>([]);
   const [newFileName, setNewFileName] = useState("");
   const [newFileType, setNewFileType] = useState("Receipt/Invoice");
+  const [resubmittingItem, setResubmittingItem] = useState<any | null>(null);
 
   useEffect(() => {
     fetchPortalData();
@@ -177,8 +179,13 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
     }
 
     try {
-      const res = await apiCall("/api/liquidation-submissions", {
-        method: "POST",
+      const url = resubmittingItem 
+        ? `/api/liquidation-submissions/${resubmittingItem.id}/resubmit`
+        : "/api/liquidation-submissions";
+      const method = resubmittingItem ? "PUT" : "POST";
+
+      const res = await apiCall(url, {
+        method,
         body: JSON.stringify({
           activityId: selectedActivityId,
           totalReleased,
@@ -189,10 +196,15 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
       });
 
       if (res.status === "success") {
-        setSuccess("Liquidation report filed. Forwarded to HR relationship and activity verification desk.");
+        setSuccess(resubmittingItem 
+          ? `Settlement revision report ${resubmittingItem.submissionNo} corrected and resubmitted successfully to HR desk.`
+          : "Liquidation report filed. Forwarded to HR relationship and activity verification desk.");
         setLiqRemarks("");
         setAttachedFiles([]);
         setTotalSpent(0);
+        setSelectedActivityId("");
+        setTotalReleased(0);
+        setResubmittingItem(null);
         fetchPortalData();
         onRefresh();
       }
@@ -201,18 +213,66 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
     }
   }
 
-  function handleAddMockDoc() {
-    if (!newFileName) return;
-    const doc = {
-      id: `doc-${Date.now()}`,
-      name: newFileName,
-      type: newFileType,
-      filename: `${newFileName.toLowerCase().replace(/\s+/g, "_")}.pdf`,
-      uploadedAt: new Date().toISOString()
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Read file as base64
+  const handleFileRead = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64Data = reader.result as string;
+      const formattedSize = (file.size / 1024).toFixed(1) + " KB";
+      const newDoc = {
+        id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        name: file.name,
+        size: formattedSize,
+        type: file.type || "application/octet-stream",
+        content: base64Data, // Save actual base64
+        uploadedAt: new Date().toISOString()
+      };
+      setAttachedFiles(prev => [...prev, newDoc]);
     };
-    setAttachedFiles(prev => [...prev, doc]);
-    setNewFileName("");
-  }
+    reader.readAsDataURL(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      for (let i = 0; i < e.target.files.length; i++) {
+        handleFileRead(e.target.files[i]);
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        handleFileRead(e.dataTransfer.files[i]);
+      }
+    }
+  };
+
+  const downloadBase64File = (name: string, content: string) => {
+    if (!content) {
+      alert("No printable file attachments scanned for this mock metadata row.");
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = content;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   function handleRemoveAttached(id: string) {
     setAttachedFiles(prev => prev.filter(f => f.id !== id));
@@ -533,7 +593,50 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
 
             {/* CREATE SUBMISSION FORM */}
             <form onSubmit={handleLiquidationSubmit} className="space-y-4 p-5 border border-slate-200 rounded-xl bg-slate-50/30">
-              <h2 className="text-xs font-bold text-slate-700 uppercase font-mono tracking-wider">File Liquidation Voucher Report</h2>
+              <h2 className="text-xs font-bold text-slate-700 uppercase font-mono tracking-wider flex items-center justify-between">
+                <span>{resubmittingItem ? `Correct & Resubmit Report: ${resubmittingItem.submissionNo}` : "File Liquidation Voucher Report"}</span>
+                {resubmittingItem && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResubmittingItem(null);
+                      setSelectedActivityId("");
+                      setTotalReleased(0);
+                      setTotalSpent(0);
+                      setLiqRemarks("");
+                      setAttachedFiles([]);
+                    }}
+                    className="text-[10px] text-slate-400 hover:text-slate-600 bg-white border px-2 py-0.5 rounded font-mono uppercase cursor-pointer"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </h2>
+
+              {resubmittingItem && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-850 space-y-2">
+                  <p className="font-bold uppercase tracking-wider text-[10px] text-amber-900 font-mono">⚠️ CORRECTIONS REQUIRED & FEEDBACK FROM AUDITING</p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[10px]">
+                    <div className="bg-white p-2 rounded border border-amber-100">
+                      <strong>HR Verification:</strong>
+                      <p className="text-slate-600 italic mt-0.5">"{resubmittingItem.hrRemarks || 'Returned by HR'}"</p>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-amber-100">
+                      <strong>Finance Validation:</strong>
+                      <p className="text-slate-600 italic mt-0.5">"{resubmittingItem.financeRemarks || 'Awaiting Finance evaluation'}"</p>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-amber-100">
+                      <strong>Division Chief Decision:</strong>
+                      <p className="text-slate-600 italic mt-0.5">"{resubmittingItem.divisionChiefRemarks || 'Returned by Chief'}"</p>
+                    </div>
+                  </div>
+                  
+                  <p className="text-[10px] font-sans font-medium text-slate-600 leading-normal">
+                    Please audit your bills and receipts, edit the <strong>Actual Spent Amount</strong>, attach any missing Receipts/Invoices, and click <strong>"Resubmit Corrected Report"</strong> below to refresh active evaluation queues.
+                  </p>
+                </div>
+              )}
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-1">
@@ -576,43 +679,58 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
                 </div>
               </div>
 
-              {/* MOCK ATTACHMENT UPLOADER */}
-              <div className="p-3.5 bg-white border border-slate-150 rounded-lg space-y-3 max-w-xl">
-                <p className="text-[10px] font-bold uppercase text-slate-400 font-mono">Upload Receipts & Invoices Vouchers</p>
-                <div className="flex gap-2">
+              {/* REAL DRAG & DROP ATTACHMENT UPLOADER */}
+              <div className="p-4 bg-white border border-slate-150 rounded-xl space-y-3 max-w-xl">
+                <p className="text-[10px] font-bold uppercase text-slate-500 font-mono tracking-wider">Upload Receipts & Invoices Vouchers</p>
+                
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center space-y-2 ${
+                    isDragging 
+                      ? "border-blue-500 bg-blue-50/50" 
+                      : "border-slate-200 hover:border-slate-300 bg-slate-50/30"
+                  }`}
+                  onClick={() => document.getElementById("receipt-input")?.click()}
+                >
                   <input
-                    type="text"
-                    placeholder="Voucher Name (e.g. Fuel receipt Petron)"
-                    value={newFileName}
-                    onChange={e => setNewFileName(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs"
+                    id="receipt-input"
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileChange}
                   />
-                  <select
-                    value={newFileType}
-                    onChange={e => setNewFileType(e.target.value)}
-                    className="px-2 border border-slate-200 rounded-lg text-xs text-slate-600"
-                  >
-                    <option value="Invoice">Invoice</option>
-                    <option value="Liquidation Report">Liquidation Report</option>
-                    <option value="Disbursement Voucher">Disbursement Voucher</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={handleAddMockDoc}
-                    className="px-4 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-semibold cursor-pointer"
-                  >
-                    Attach
-                  </button>
+                  <Package className="text-slate-400" size={24} />
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700 font-sans">Drag and drop receipts here, or <span className="text-blue-600 underline">browse</span></p>
+                    <p className="text-[10px] text-slate-400 mt-1 font-sans">Supports PDF, Images or documents up to 5MB (Real base64 persisted file load)</p>
+                  </div>
                 </div>
 
                 {attachedFiles.length > 0 && (
-                  <div className="space-y-1 border-t border-slate-100 pt-2.5">
-                    {attachedFiles.map((file, i) => (
-                      <div key={file.id} className="flex items-center justify-between p-1.5 bg-slate-50 rounded border border-slate-100 text-[11px] text-slate-600">
-                        <span className="font-mono">📎 {file.name} (PDF)</span>
-                        <button type="button" onClick={() => handleRemoveAttached(file.id)} className="text-rose-500 hover:text-rose-700">
-                          Remove
-                        </button>
+                  <div className="space-y-1.5 border-t border-slate-100 pt-3">
+                    <p className="text-[9px] font-bold uppercase text-slate-400 font-mono tracking-wider">Loaded Documents Queue</p>
+                    {attachedFiles.map((file) => (
+                      <div key={file.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-150 text-[11px] text-slate-600">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono">📎 {file.name}</span>
+                          {file.size && <span className="text-[9px] bg-slate-200 text-slate-600 font-bold font-mono px-1.5 rounded">{file.size}</span>}
+                        </div>
+                        <div className="flex items-center space-x-1.5">
+                          {file.content && (
+                            <button
+                              type="button"
+                              onClick={() => downloadBase64File(file.name, file.content)}
+                              className="text-blue-600 hover:text-blue-800 text-[10px] font-bold font-mono uppercase cursor-pointer"
+                            >
+                              Download
+                            </button>
+                          )}
+                          <button type="button" onClick={() => handleRemoveAttached(file.id)} className="text-rose-500 hover:text-rose-700 text-[10px] font-bold font-mono uppercase cursor-pointer">
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -631,9 +749,13 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
 
               <button
                 type="submit"
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-sm cursor-pointer transition-all"
+                className={`px-6 py-2 rounded-lg shadow-sm font-semibold text-xs cursor-pointer transition-all ${
+                  resubmittingItem 
+                    ? "bg-amber-600 hover:bg-amber-700 text-white" 
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                }`}
               >
-                Submit Liquidation to HR
+                {resubmittingItem ? "Resubmit Corrected Report" : "Submit Liquidation to HR"}
               </button>
             </form>
 
@@ -651,15 +773,33 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
                           <span className="font-mono font-bold text-slate-800">{sub.submissionNo}</span>
                           <span className="text-[10px] text-slate-400 font-mono">Released: ₱{sub.totalReleased} | Spent: ₱{sub.totalSpent}</span>
                         </div>
-                        <span className={`text-[9px] font-bold font-mono px-2 py-0.5 rounded ${
-                          sub.status === "Approved" 
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
-                            : sub.status === "Returned"
-                            ? "bg-amber-50 text-amber-700 border border-amber-100"
-                            : "bg-blue-50 text-blue-700 border border-blue-100"
-                        }`}>
-                          {sub.status}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          {sub.status === "Returned" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setResubmittingItem(sub);
+                                setSelectedActivityId(sub.activityId);
+                                setTotalReleased(sub.totalReleased);
+                                setTotalSpent(sub.totalSpent);
+                                setLiqRemarks(sub.remarks || "");
+                                setAttachedFiles(sub.supportingDocs || []);
+                              }}
+                              className="px-2 py-0.5 bg-amber-650 hover:bg-amber-700 text-amber-900 border border-amber-300 font-bold rounded text-[9px] uppercase tracking-wider cursor-pointer font-mono"
+                            >
+                              Fix & Resubmit
+                            </button>
+                          )}
+                          <span className={`text-[9px] font-bold font-mono px-2 py-0.5 rounded ${
+                            sub.status === "Approved" 
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
+                              : sub.status === "Returned"
+                              ? "bg-amber-50 text-amber-700 border border-amber-105"
+                              : "bg-blue-50 text-blue-700 border border-blue-101"
+                          }`}>
+                            {sub.status}
+                          </span>
+                        </div>
                       </div>
 
                       {/* REMARKS AND TRIAL CORRECTION VIEWS */}
@@ -677,6 +817,24 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
                           <p className="text-slate-500 class-italic mt-0.5">"{sub.divisionChiefRemarks || 'Pending endorsements'}"</p>
                         </div>
                       </div>
+
+                      {/* ATTACHED DOCUMENTS VIEW AND DOWNLOAD */}
+                      {sub.supportingDocs && sub.supportingDocs.length > 0 && (
+                        <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2 items-center">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase font-mono tracking-wider">Receipt Ledger:</span>
+                          {sub.supportingDocs.map((doc: any, idx: number) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => downloadBase64File(doc.name, doc.content)}
+                              className="px-2 py-0.5 bg-white hover:bg-slate-50 border border-slate-200 rounded text-[10px] text-blue-600 font-mono font-medium inline-flex items-center space-x-1 cursor-pointer"
+                            >
+                              <span>📎 {doc.name}</span>
+                              {doc.size && <span className="text-[8px] bg-slate-100 text-slate-500 px-1 rounded">{doc.size}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

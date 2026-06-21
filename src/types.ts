@@ -142,6 +142,7 @@ export interface BudgetRequestItem {
   purpose: string;
   status: "Pending" | "Approved" | "Returned";
   remarks?: string;
+  approvedBy?: string;
   createdAt: string;
 }
 
