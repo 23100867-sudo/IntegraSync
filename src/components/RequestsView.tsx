@@ -164,23 +164,7 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
   function canUserApprove(req: AnyRequest): boolean {
     const role = user.role;
     if (role === UserRole.SUPER_ADMIN) return true;
-    
-    if (req.requestType === RequestType.LEAVE) {
-      return [UserRole.DEPARTMENT_HEAD, UserRole.HR_OFFICER].includes(role);
-    }
-    if (req.requestType === RequestType.SERVICE_RECORD) {
-      return role === UserRole.HR_OFFICER;
-    }
-    if (req.requestType === RequestType.VEHICLE) {
-      return role === UserRole.DEPARTMENT_HEAD;
-    }
-    if (req.requestType === RequestType.ZOOM) {
-      return role === UserRole.DEPARTMENT_HEAD;
-    }
-    if (req.requestType === RequestType.SUPPLY) {
-      return role === UserRole.PROPERTY_CUSTODIAN;
-    }
-    return false;
+    return role === UserRole.HR_OFFICER;
   }
 
   // Classify request lists based on perspective

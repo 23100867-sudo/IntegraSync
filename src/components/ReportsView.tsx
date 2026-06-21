@@ -183,7 +183,124 @@ export default function ReportsView({ user, employees, transactions, assets, sup
     exportCSV(headers, rows, "HSAC_RAB1_Digital_Filing_Workflow_Journal.csv");
   }
 
+  // SAAODB / SAODB Statement of Allotments, Obligations, Disbursements and Balances (FAR 1 & 1A)
+  function exportSAODBCSV() {
+    const headers = [
+      "MFO/PAP Division (FAR 1/1A)",
+      "UACS Budget Allocation Code",
+      "Departmental Allotment (A)",
+      "Obligations Incurred / Spending (B)",
+      "Disbursements Paid / Validated (C)",
+      "Unpaid Obligations Outstanding (D = B - C)",
+      "Unobligated Available Balance (E = A - B)",
+      "Departmental Utilization Rate (%)"
+    ];
+
+    // Compute metrics
+    const divisions = [
+      { name: "Adjudication Division", uacs: "100010000", allotment: 500000.00 },
+      { name: "Administrative and Finance Division", uacs: "200020000", allotment: 1000000.00 },
+      { name: "Legal Division", uacs: "300030000", allotment: 400000.00 }
+    ];
+
+    const rows = divisions.map(div => {
+      const divTxns = transactions.filter(t => t.department === div.name);
+      
+      // Obligations: sum of all transactions registered
+      const obligations = divTxns.reduce((sum, t) => sum + t.amount, 0);
+      
+      // Disbursements: sum of validated or liquidated transactions
+      const disbursements = divTxns
+        .filter(t => ["Validated", "Liquidated"].includes(t.status))
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const unpaidObligations = obligations - disbursements;
+      const unobligatedBalance = div.allotment - obligations;
+      const rate = div.allotment > 0 ? ((obligations / div.allotment) * 100).toFixed(2) : "0.00";
+
+      return [
+        div.name,
+        div.uacs,
+        div.allotment.toFixed(2),
+        obligations.toFixed(2),
+        disbursements.toFixed(2),
+        unpaidObligations.toFixed(2),
+        unobligatedBalance.toFixed(2),
+        `${rate}%`
+      ];
+    });
+
+    exportCSV(headers, rows, "HSAC_RAB1_SAAODB_SAODB_FAR1_Compliance_Sheet.csv");
+  }
+
+  // Monthly Report of Disbursements (FAR 3)
+  function exportFAR3CSV() {
+    const headers = [
+      "Reporting Month (FAR 3)",
+      "UACS Program / PAP Stream",
+      "Validated Disbursements Count",
+      "Disbursed Amount (A = Cash Out)",
+      "Outstanding Pending Voucher Amount (B)",
+      "Total Monitored Ledger Obligations (A + B)"
+    ];
+
+    // Grouping by Month
+    const monthlyGroups: { [key: string]: { count: number; paid: number; pending: number } } = {};
+    
+    transactions.forEach(tx => {
+      const dateObj = new Date(tx.transactionDate);
+      const monthStr = isNaN(dateObj.getTime()) 
+        ? "FY 2026 Active" 
+        : dateObj.toLocaleString("en-US", { year: "numeric", month: "long" });
+
+      if (!monthlyGroups[monthStr]) {
+        monthlyGroups[monthStr] = { count: 0, paid: 0, pending: 0 };
+      }
+
+      if (["Validated", "Liquidated"].includes(tx.status)) {
+        monthlyGroups[monthStr].count += 1;
+        monthlyGroups[monthStr].paid += tx.amount;
+      } else {
+        monthlyGroups[monthStr].pending += tx.amount;
+      }
+    });
+
+    const rows = Object.keys(monthlyGroups).map(monthKey => {
+      const group = monthlyGroups[monthKey];
+      const total = group.paid + group.pending;
+      return [
+        monthKey,
+        "General Adjudication & Support Services",
+        group.count.toString(),
+        group.paid.toFixed(2),
+        group.pending.toFixed(2),
+        total.toFixed(2)
+      ];
+    });
+
+    // Fallback if no transactions are logged
+    if (rows.length === 0) {
+      rows.push(["FY 2026 No Records", "General Support Stream", "0", "0.00", "0.00", "0.00"]);
+    }
+
+    exportCSV(headers, rows, "HSAC_RAB1_Monthly_Disbursements_FAR3_Compliance_Sheet.csv");
+  }
+
   const reportsList = [
+    {
+      title: "Statement of Allotments, Obligations & Balances (SAAODB / FAR 1 & 1A)",
+      desc: "Comprehensive public sector finance sheet mapping national government allotments, obligations incurred, liquidated disbursements, unpaid obligs, and available balances by UACS codes.",
+      icon: FileSpreadsheet,
+      recordsCount: 3,
+      downloader: exportSAODBCSV
+    },
+    {
+      title: "FAR 3 - Monthly Report of Disbursements (E-Government Compliant)",
+      desc: "Chronological government book listing actual cash disbursements, pending vouchers, and general ledger reconciliation parameters.",
+      icon: FileSpreadsheet,
+      recordsCount: transactions.length,
+      downloader: exportFAR3CSV
+    },
     {
       title: "HSAC Personnel Master Directory Roster",
       desc: "Complete database of active personnel plantilla properties, contact vectors, emergency nodes, email indexes, and dates hired.",
@@ -227,18 +344,18 @@ export default function ReportsView({ user, employees, transactions, assets, sup
       {/* HEADER TITLE BRAND */}
       <div>
         <h1 className="text-md font-bold text-slate-800 flex items-center">
-          <FileSpreadsheet className="text-amber-500 mr-2" size={18} />
+          <FileSpreadsheet className="text-blue-600 mr-2" size={18} />
           Certified Compliance Reports Export Desk
         </h1>
         <p className="text-[11px] text-slate-500">Generate certified spreadsheet audits matching all active data tables. Exports directly in standard, comma-separated values (CSV).</p>
       </div>
 
       {/* COMPLIANT WARNING SECTION */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <BadgeAlert size={16} className="text-amber-600 shrink-0 mt-0.5" />
-        <div className="text-[11px] text-amber-900 leading-relaxed space-y-1">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+        <BadgeAlert size={16} className="text-blue-600 shrink-0 mt-0.5" />
+        <div className="text-[11px] text-blue-900 leading-relaxed space-y-1">
           <p className="font-bold">Government Integrity Act Compliance Warning (RA 10173 & RA 9470)</p>
-          <p>Spreadsheets generated through this terminal contain regional civil service credentials, personal data sheets (PDS), and financial disbursements. Under existing guidelines, unauthorized external distribution is strictly monitored. Immulatable audit trail records your operator name credentials <strong className="text-amber-900 font-extrabold">{user.fullName}</strong> upon every file download event.</p>
+          <p>Spreadsheets generated through this terminal contain regional civil service credentials, personal data sheets (PDS), and financial disbursements. Under existing guidelines, unauthorized external distribution is strictly monitored. Immulatable audit trail records your operator name credentials <strong className="text-blue-900 font-extrabold">{user.fullName}</strong> upon every file download event.</p>
         </div>
       </div>
 

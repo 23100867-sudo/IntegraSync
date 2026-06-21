@@ -57,28 +57,28 @@ export default function DashboardView({ user, summaryData, loading, setActiveTab
   return (
     <div id="ipfms-dashboard-view" className="flex-1 overflow-y-auto p-6 bg-slate-50 space-y-6">
       {/* WELCOME BANNER WITH USER PROFILE */}
-      <div className="bg-gradient-to-r from-amber-50 to-amber-100/60 border border-amber-200/80 rounded-xl p-6 text-slate-800 shadow-sm relative overflow-hidden">
-        <div className="absolute right-0 top-0 opacity-20 translate-x-12 -translate-y-12 pointer-events-none">
-          <Layers size={280} className="text-amber-300" />
+      <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-xl p-6 text-white shadow-md relative overflow-hidden">
+        <div className="absolute right-0 top-0 opacity-10 translate-x-12 -translate-y-12">
+          <Layers size={280} />
         </div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <span className="text-[10px] uppercase font-mono tracking-wider bg-amber-500 text-white px-2.5 py-1 rounded-full font-bold shadow-sm shadow-amber-500/10">
+            <span className="text-[10px] uppercase font-mono tracking-wider bg-amber-500 text-slate-950 px-2.5 py-1 rounded-full font-bold">
               Secure Terminal Active
             </span>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight mt-2 flex items-center">
+            <h1 className="text-xl font-bold tracking-tight mt-2 flex items-center">
               Welcome Back, {user.fullName}!
             </h1>
-            <p className="text-xs text-slate-600 mt-1 max-w-xl font-sans">
+            <p className="text-xs text-slate-300 mt-1 max-w-xl font-sans">
               Integrated Personnel and Financial Management System • HSAC RAB No. 1 Philippines.
-              Logged in with <span className="font-semibold text-amber-700">{user.role}</span> authority.
+              Logged in with <span className="font-semibold text-amber-400">{user.role}</span> authority.
             </p>
           </div>
           <div className="flex gap-2">
             <button 
               id="dash-btn-requests"
               onClick={() => setActiveTab("requests")}
-              className="bg-amber-500 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-amber-600 transition-colors flex items-center shadow-md shadow-amber-500/15 cursor-pointer"
+              className="bg-amber-500 text-slate-900 px-4 py-2 rounded-lg text-xs font-semibold hover:bg-amber-400 transition-colors flex items-center shadow-md shadow-amber-500/15"
             >
               <span>Submit Service Form</span>
               <ArrowRight size={14} className="ml-1.5" />

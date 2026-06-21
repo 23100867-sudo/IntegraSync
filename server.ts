@@ -18,7 +18,12 @@ import {
   RequestType, 
   RequestStatus, 
   AnyRequest, 
-  AuditLog 
+  AuditLog,
+  Liquidation,
+  BudgetAllocation,
+  FinanceAuditLog,
+  Notification,
+  BudgetRequestItem
 } from "./src/types";
 
 const app = express();
@@ -40,6 +45,11 @@ interface DBStructure {
   supplyIssuances: SupplyIssuance[];
   requests: AnyRequest[];
   auditLogs: AuditLog[];
+  liquidations: Liquidation[];
+  budgetAllocations: BudgetAllocation[];
+  financeAuditLogs: FinanceAuditLog[];
+  notifications: Notification[];
+  budgetRequests: BudgetRequestItem[];
 }
 
 // Check and seed DB on server launch
@@ -47,7 +57,182 @@ function getInitialData(): DBStructure {
   if (fs.existsSync(DATA_FILE_PATH)) {
     try {
       const content = fs.readFileSync(DATA_FILE_PATH, "utf8");
-      return JSON.parse(content);
+      const loaded = JSON.parse(content);
+      
+      let changed = false;
+      if (!loaded.liquidations) {
+        loaded.liquidations = [
+          {
+            id: "liqp-1",
+            liquidationNo: "LIQ-2026-001",
+            requestRef: "REQ-VHL-091",
+            employee: "Andres B. Bonifacio",
+            department: "Adjudication Division",
+            amountReleased: 5000.00,
+            amountLiquidated: 4800.00,
+            remainingBalance: 200.00,
+            liquidationDate: "2026-06-03",
+            status: "Completed",
+            notes: "Completed Petron fuel trip liquidation. Refund has been submitted.",
+            approvedBy: "Juan dela Cruz",
+            createdAt: "2026-06-03T17:00:00Z"
+          },
+          {
+            id: "liqp-2",
+            liquidationNo: "LIQ-2026-002",
+            requestRef: "REQ-SPL-044",
+            employee: "Pedro B. Penduko",
+            department: "Administrative and Finance Division",
+            amountReleased: 15000.00,
+            amountLiquidated: 14500.00,
+            remainingBalance: 500.00,
+            liquidationDate: "2026-05-15",
+            status: "Completed",
+            notes: "La Union Office Supplies purchase liquidation.",
+            approvedBy: "Juan dela Cruz",
+            createdAt: "2026-05-15T16:45:00Z"
+          },
+          {
+            id: "liqp-3",
+            liquidationNo: "LIQ-2026-003",
+            requestRef: "REQ-TRV-112",
+            employee: "Juan dela Cruz",
+            department: "Administrative and Finance Division",
+            amountReleased: 12000.00,
+            amountLiquidated: 0.00,
+            remainingBalance: 12000.00,
+            liquidationDate: "2026-06-08",
+            status: "Under Review",
+            notes: "Awaiting review of food receipts and accommodation invoice details for mediation trip.",
+            createdAt: "2026-06-08T09:00:00Z"
+          },
+          {
+            id: "liqp-4",
+            liquidationNo: "LIQ-2026-004",
+            requestRef: "REQ-PRV-312",
+            employee: "Maria Clara V. Santos",
+            department: "Administrative and Finance Division",
+            amountReleased: 8500.00,
+            amountLiquidated: 0.00,
+            remainingBalance: 8500.00,
+            liquidationDate: "2026-06-09",
+            status: "Pending Submission",
+            notes: "Equipment repairs cash advance for regional branch laptops.",
+            createdAt: "2026-06-09T08:30:00Z"
+          }
+        ];
+        changed = true;
+      }
+      if (!loaded.budgetAllocations) {
+        loaded.budgetAllocations = [
+          { id: "b-1", department: "Adjudication Division", budgetAllocation: 500000.00, budgetUtilized: 120000.00, remainingBudget: 380000.00, budgetPercentageUsed: 24 },
+          { id: "b-2", department: "Administrative and Finance Division", budgetAllocation: 1000000.00, budgetUtilized: 450000.00, remainingBudget: 550000.00, budgetPercentageUsed: 45 },
+          { id: "b-3", department: "Legal Division", budgetAllocation: 400000.00, budgetUtilized: 85500.00, remainingBudget: 314500.00, budgetPercentageUsed: 21 }
+        ];
+        changed = true;
+      }
+      if (!loaded.financeAuditLogs) {
+        loaded.financeAuditLogs = [
+          { id: "fl-1", user: "Juan dela Cruz", action: "Validate Transaction", module: "Financial Transactions", timestamp: "2026-05-13T09:30:00Z", previousValue: "Under Review", newValue: "Validated" },
+          { id: "fl-2", user: "Juan dela Cruz", action: "Complete Liquidation", module: "Liquidation Monitoring", timestamp: "2026-06-03T17:00:00Z", previousValue: "Under Review", newValue: "Completed" }
+        ];
+        changed = true;
+      }
+      if (!loaded.budgetRequests) {
+        loaded.budgetRequests = [
+          { id: "br-1", department: "Adjudication Division", amountRequested: 150000.00, requestType: "Augmentation", purpose: "Additional travel allocations for provincial hearings", status: "Pending", createdAt: "2026-06-15T09:00:00Z" },
+          { id: "br-2", department: "Legal Division", amountRequested: 50000.00, requestType: "Emergency", purpose: "Urgent purchase of legal research library subscriptions", status: "Approved", remarks: "Approved for FY2026 Q3", createdAt: "2026-06-12T14:30:00Z" }
+        ];
+        changed = true;
+      }
+      if (!loaded.notifications) {
+        loaded.notifications = [
+          {
+            id: "notif-1",
+            title: "Leave Request Submitted",
+            message: "Adjudicator Andres Bonifacio has submitted an urgent Vacation Leave Request for your review.",
+            type: "urgent",
+            isRead: false,
+            timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+            targetRole: UserRole.HR_OFFICER
+          },
+          {
+            id: "notif-2",
+            title: "Low Supply Inventory Range Alert",
+            message: "Supply stock for 'A4 Multi-purpose Bond Paper (80gsm)' is currently low (5 units left). Please arrange purchase acquisition.",
+            type: "warning",
+            isRead: false,
+            timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
+            targetRole: UserRole.SUPER_ADMIN
+          },
+          {
+            id: "notif-3",
+            title: "Financial Liquidation Verification",
+            message: "Juan dela Cruz submitted a travel liquidation of ₱12,000 for travel request REQ-TRV-112. Support vouchers need verification.",
+            type: "info",
+            isRead: false,
+            timestamp: new Date(Date.now() - 3600000 * 12).toISOString(),
+            targetRole: UserRole.FINANCE_OFFICER
+          },
+          {
+            id: "notif-4",
+            title: "Comprehensive Security Compliance Log Audit",
+            message: "All HR and Finance tables comply with RA 10173 Data Privacy protection directives. Periodic validation complete.",
+            type: "success",
+            isRead: false,
+            timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
+            targetRole: UserRole.SUPER_ADMIN
+          },
+          {
+            id: "notif-5",
+            title: "En Banc Board Case Reconciliation Scheduled",
+            message: "A general assembly has been scheduled for case adjustments on Room B at 09:00 AM.",
+            type: "info",
+            isRead: false,
+            timestamp: new Date(Date.now() - 3600000 * 28).toISOString(),
+            targetRole: UserRole.EMPLOYEE
+          },
+          {
+            id: "notif-6",
+            title: "Meeting Room Assignment Active",
+            message: "Zoom meeting 'RAB 1 En Banc Case Reconciliation Adjudication' setup is ready for launch.",
+            type: "success",
+            isRead: false,
+            timestamp: new Date(Date.now() - 3600000 * 30).toISOString(),
+            targetRole: UserRole.EMPLOYEE
+          }
+        ];
+        changed = true;
+      }
+      
+      // Backfill missing fields in financial transactions
+      loaded.financialTransactions.forEach((tx: any) => {
+        if (!tx.department) {
+          tx.department = tx.id === "tx-1" ? "Legal Division" : "Administrative and Finance Division";
+          changed = true;
+        }
+        if (!tx.category) {
+          tx.category = tx.id === "tx-1" ? "Office Supplies" : tx.id === "tx-3" ? "Fuel/Tolls" : "Maintenance";
+          changed = true;
+        }
+        if (!tx.employeeRef) {
+          tx.employeeRef = tx.id === "tx-1" ? "EMP006" : tx.id === "tx-3" ? "EMP006" : "EMP004";
+          changed = true;
+        }
+        if (!tx.createdBy) {
+          tx.createdBy = tx.id === "tx-1" ? "Andres B. Bonifacio" : tx.id === "tx-3" ? "Andres B. Bonifacio" : "Pedro B. Penduko";
+          changed = true;
+        }
+        if (!tx.dateCreated) {
+          tx.dateCreated = tx.transactionDate;
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(loaded, null, 2), "utf8");
+      }
+      return loaded;
     } catch (e) {
       console.error("Error reading data_store.json, re-initializing", e);
     }
@@ -59,9 +244,8 @@ function getInitialData(): DBStructure {
       { id: "u-1", username: "admin", email: "admin@hsac.gov.ph", fullName: "Hon. Romeo M. Alcantara", role: UserRole.SUPER_ADMIN, employeeId: "EMP001", createdAt: "2026-01-15T08:00:00Z" },
       { id: "u-2", username: "hr", email: "clara.santos@hsac.gov.ph", fullName: "Maria Clara V. Santos", role: UserRole.HR_OFFICER, employeeId: "EMP002", createdAt: "2026-01-15T08:30:00Z" },
       { id: "u-3", username: "finance", email: "juan.delacruz@hsac.gov.ph", fullName: "Juan dela Cruz", role: UserRole.FINANCE_OFFICER, employeeId: "EMP003", createdAt: "2026-01-15T09:00:00Z" },
-      { id: "u-4", username: "custodian", email: "pedro.penduko@hsac.gov.ph", fullName: "Pedro B. Penduko", role: UserRole.PROPERTY_CUSTODIAN, employeeId: "EMP004", createdAt: "2026-01-15T09:15:00Z" },
-      { id: "u-5", username: "head", email: "jose.rizal@hsac.gov.ph", fullName: "Dr. Jose P. Rizal", role: UserRole.DEPARTMENT_HEAD, employeeId: "EMP005", createdAt: "2026-01-15T09:45:00Z" },
       { id: "u-6", username: "employee", email: "andres.bonifacio@hsac.gov.ph", fullName: "Andres B. Bonifacio", role: UserRole.EMPLOYEE, employeeId: "EMP006", createdAt: "2026-01-15T10:00:00Z" },
+      { id: "u-7", username: "budget", email: "budget@hsac.gov.ph", fullName: "Francisco F. Balagtas", role: UserRole.BUDGET_OFFICER, employeeId: "EMP007", createdAt: "2026-01-15T10:15:00Z" },
     ],
     employees: [
       {
@@ -159,6 +343,22 @@ function getInitialData(): DBStructure {
         emergencyContactPhone: "09164445555",
         pdsFieldName: "EMP006_PDS.pdf",
         pdsUploadedAt: "2026-03-01T15:00:00Z"
+      },
+      {
+        id: "emp-7",
+        employeeId: "EMP007",
+        fullName: "Francisco F. Balagtas",
+        position: "Administrative Officer IV (Budget)",
+        division: "Administrative and Finance Division",
+        employmentStatus: "Permanent",
+        email: "budget@hsac.gov.ph",
+        address: "San Fernando City, La Union",
+        dateHired: "2022-04-18",
+        contactNumber: "09175551234",
+        emergencyContactName: "Juana Tiambeng",
+        emergencyContactPhone: "09175554321",
+        pdsFieldName: "EMP007_PDS.pdf",
+        pdsUploadedAt: "2026-04-01T10:00:00Z"
       }
     ],
     employmentHistory: [
@@ -327,6 +527,135 @@ function getInitialData(): DBStructure {
       { id: "log-2", timestamp: "2026-06-01T09:12:00Z", userId: "u-2", username: "hr", role: "HR Officer", action: "Create Request Approval", details: "Approved Service Record Request for Juan dela Cruz - Copies: 2" },
       { id: "log-3", timestamp: "2026-06-03T10:15:00Z", userId: "u-3", username: "finance", role: "Finance Officer", action: "Login", details: "Financial Officer logged into ledger analytics portal." },
       { id: "log-4", timestamp: "2026-06-03T11:45:00Z", userId: "u-3", username: "finance", role: "Finance Officer", action: "Review Journal Receipts", details: "Reviewed fuel transaction documentation with ID TXN-2026-003." }
+    ],
+    liquidations: [
+      {
+        id: "liqp-1",
+        liquidationNo: "LIQ-2026-001",
+        requestRef: "REQ-VHL-091",
+        employee: "Andres B. Bonifacio",
+        department: "Adjudication Division",
+        amountReleased: 5000.00,
+        amountLiquidated: 4800.00,
+        remainingBalance: 200.00,
+        liquidationDate: "2026-06-03",
+        status: "Completed",
+        notes: "Completed Petron fuel trip liquidation. Refund has been submitted.",
+        approvedBy: "Juan dela Cruz",
+        createdAt: "2026-06-03T17:00:00Z"
+      },
+      {
+        id: "liqp-2",
+        liquidationNo: "LIQ-2026-002",
+        requestRef: "REQ-SPL-044",
+        employee: "Pedro B. Penduko",
+        department: "Administrative and Finance Division",
+        amountReleased: 15000.00,
+        amountLiquidated: 14500.00,
+        remainingBalance: 500.00,
+        liquidationDate: "2026-05-15",
+        status: "Completed",
+        notes: "La Union Office Supplies purchase liquidation.",
+        approvedBy: "Juan dela Cruz",
+        createdAt: "2026-05-15T16:45:00Z"
+      },
+      {
+        id: "liqp-3",
+        liquidationNo: "LIQ-2026-003",
+        requestRef: "REQ-TRV-112",
+        employee: "Juan dela Cruz",
+        department: "Administrative and Finance Division",
+        amountReleased: 12000.00,
+        amountLiquidated: 0.00,
+        remainingBalance: 12000.00,
+        liquidationDate: "2026-06-08",
+        status: "Under Review",
+        notes: "Awaiting review of food receipts and accommodation invoice details for mediation trip.",
+        createdAt: "2026-06-08T09:00:00Z"
+      },
+      {
+        id: "liqp-4",
+        liquidationNo: "LIQ-2026-004",
+        requestRef: "REQ-PRV-312",
+        employee: "Maria Clara V. Santos",
+        department: "Administrative and Finance Division",
+        amountReleased: 8500.00,
+        amountLiquidated: 0.00,
+        remainingBalance: 8500.00,
+        liquidationDate: "2026-06-09",
+        status: "Pending Submission",
+        notes: "Equipment repairs cash advance for regional branch laptops.",
+        createdAt: "2026-06-09T08:30:00Z"
+      }
+    ],
+        budgetAllocations: [
+      { id: "b-1", department: "Adjudication Division", budgetAllocation: 500000.00, budgetUtilized: 120000.00, remainingBudget: 380000.00, budgetPercentageUsed: 24 },
+      { id: "b-2", department: "Administrative and Finance Division", budgetAllocation: 1000000.00, budgetUtilized: 450000.00, remainingBudget: 550000.00, budgetPercentageUsed: 45 },
+      { id: "b-3", department: "Legal Division", budgetAllocation: 400000.00, budgetUtilized: 85500.00, remainingBudget: 314500.00, budgetPercentageUsed: 21 }
+    ],
+    financeAuditLogs: [
+      { id: "fl-1", user: "Juan dela Cruz", action: "Validate Transaction", module: "Financial Transactions", timestamp: "2026-05-13T09:30:00Z", previousValue: "Under Review", newValue: "Validated" },
+      { id: "fl-2", user: "Juan dela Cruz", action: "Complete Liquidation", module: "Liquidation Monitoring", timestamp: "2026-06-03T17:00:00Z", previousValue: "Under Review", newValue: "Completed" }
+    ],
+    budgetRequests: [
+      { id: "br-1", department: "Adjudication Division", amountRequested: 150000.00, requestType: "Augmentation", purpose: "Additional travel allocations for provincial hearings", status: "Pending", createdAt: "2026-06-15T09:00:00Z" },
+      { id: "br-2", department: "Legal Division", amountRequested: 50000.00, requestType: "Emergency", purpose: "Urgent purchase of legal research library subscriptions", status: "Approved", remarks: "Approved for FY2026 Q3", createdAt: "2026-06-12T14:30:00Z" }
+    ],
+    notifications: [
+      {
+        id: "notif-1",
+        title: "Leave Request Submitted",
+        message: "Adjudicator Andres Bonifacio has submitted an urgent Vacation Leave Request for your review.",
+        type: "urgent",
+        isRead: false,
+        timestamp: "2026-06-16T02:00:00Z",
+        targetRole: UserRole.HR_OFFICER
+      },
+      {
+        id: "notif-2",
+        title: "Low Supply Inventory Range Alert",
+        message: "Supply stock for 'A4 Multi-purpose Bond Paper (80gsm)' is currently low (5 units left). Please arrange purchase acquisition.",
+        type: "warning",
+        isRead: false,
+        timestamp: "2026-06-16T01:30:00Z",
+        targetRole: UserRole.SUPER_ADMIN
+      },
+      {
+        id: "notif-3",
+        title: "Financial Liquidation Verification",
+        message: "Juan dela Cruz submitted a travel liquidation of ₱12,000 for travel request REQ-TRV-112. Support vouchers need verification.",
+        type: "info",
+        isRead: false,
+        timestamp: "2026-06-15T18:00:00Z",
+        targetRole: UserRole.FINANCE_OFFICER
+      },
+      {
+        id: "notif-4",
+        title: "Comprehensive Security Compliance Log Audit",
+        message: "All HR and Finance tables comply with RA 10173 Data Privacy protection directives. Periodic validation complete.",
+        type: "success",
+        isRead: false,
+        timestamp: "2026-06-15T10:00:00Z",
+        targetRole: UserRole.SUPER_ADMIN
+      },
+      {
+        id: "notif-5",
+        title: "En Banc Board Case Reconciliation Scheduled",
+        message: "A general assembly has been scheduled for case adjustments on Room B at 09:00 AM.",
+        type: "info",
+        isRead: false,
+        timestamp: "2026-06-15T09:00:00Z",
+        targetRole: UserRole.EMPLOYEE
+      },
+      {
+        id: "notif-6",
+        title: "Meeting Room Assignment Active",
+        message: "Zoom meeting 'RAB 1 En Banc Case Reconciliation Adjudication' setup is ready for launch.",
+        type: "success",
+        isRead: false,
+        timestamp: "2026-06-15T08:00:00Z",
+        targetRole: UserRole.EMPLOYEE
+      }
     ]
   };
 
@@ -358,6 +687,23 @@ function logEvent(userId: string, username: string, role: string, action: string
   saveDB();
 }
 
+function logFinanceAudit(user: string, action: string, module: string, previousValue: string, newValue: string) {
+  const newLog: FinanceAuditLog = {
+    id: `fl-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    user,
+    action,
+    module,
+    timestamp: new Date().toISOString(),
+    previousValue: previousValue || "None",
+    newValue: newValue || "None"
+  };
+  if (!db.financeAuditLogs) {
+    db.financeAuditLogs = [];
+  }
+  db.financeAuditLogs.unshift(newLog);
+  saveDB();
+}
+
 // 1. Authentication Routes
 app.post("/api/auth/login", (req, res) => {
   const { username, email, password } = req.body;
@@ -371,12 +717,10 @@ app.post("/api/auth/login", (req, res) => {
     targetUsername = "hr";
   } else if (inputIdentifier === "finance@hsac.gov.ph" || inputIdentifier === "juan.delacruz@hsac.gov.ph" || inputIdentifier === "finance") {
     targetUsername = "finance";
-  } else if (inputIdentifier === "custodian@hsac.gov.ph" || inputIdentifier === "pedro.penduko@hsac.gov.ph" || inputIdentifier === "custodian") {
-    targetUsername = "custodian";
-  } else if (inputIdentifier === "head" || inputIdentifier === "jose.rizal@hsac.gov.ph" || inputIdentifier === "department-head@hsac.gov.ph") {
-    targetUsername = "head";
   } else if (inputIdentifier === "employee@hsac.gov.ph" || inputIdentifier === "andres.bonifacio@hsac.gov.ph" || inputIdentifier === "employee") {
     targetUsername = "employee";
+  } else if (inputIdentifier === "budget@hsac.gov.ph" || inputIdentifier === "budget" || inputIdentifier === "francisco.balagtas@hsac.gov.ph") {
+    targetUsername = "budget";
   }
 
   // Locate the user record in database
@@ -660,12 +1004,15 @@ app.get("/api/financial-transactions", authenticateToken, (req, res) => {
 app.post("/api/financial-transactions", authenticateToken, (req: any, res) => {
   const data = req.body;
 
-  // Enforce Roles: Admin or Finance or Custodian (who uploads receipts of purchases)
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.FINANCE_OFFICER && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
+  // Enforce Roles: Admin or Finance
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.FINANCE_OFFICER) {
     return res.status(403).json({ status: "error", message: "Unauthorized to log financial receipts" });
   }
 
   const txnId = `TXN-2026-${Math.floor(100 + Math.random() * 900)}`;
+  const empRef = data.employeeRef || req.user.employeeId || "EMP003";
+  const dept = data.department || req.user.division || "Administrative and Finance Division";
+  const cat = data.category || "Other";
 
   const newTxn: FinancialTransaction = {
     id: `tx-${Date.now()}`,
@@ -683,10 +1030,18 @@ app.post("/api/financial-transactions", authenticateToken, (req: any, res) => {
       changedBy: req.user.fullName,
       changedAt: new Date().toISOString(),
       remarks: "Receipt submitted to registry ledger. Awaiting Finance verification."
-    }]
+    }],
+    employeeRef: empRef,
+    department: dept,
+    category: cat,
+    createdBy: req.user.fullName,
+    dateCreated: new Date().toISOString().split("T")[0]
   };
 
   db.financialTransactions.push(newTxn);
+  
+  // Create precise finance audit log trace
+  logFinanceAudit(req.user.fullName, "Transaction Creation", "Financial Transactions", "None", txnId);
   logEvent(req.user.id, req.user.username, req.user.role, "Register Receipt", `Logged regional financial receipt ${newTxn.transactionId} matching PHP ${newTxn.amount} from ${newTxn.supplier}`);
   saveDB();
   res.json({ status: "success", data: newTxn });
@@ -718,6 +1073,20 @@ app.put("/api/financial-transactions/:id/status", authenticateToken, (req: any, 
     remarks: remarks || `Workflow shift to: ${status}`
   });
 
+  // Track budget utilization dynamically upon validating transactions
+  if (status === TransactionStatus.VALIDATED || status === TransactionStatus.LIQUIDATED) {
+    if (oldStatus !== TransactionStatus.VALIDATED && oldStatus !== TransactionStatus.LIQUIDATED) {
+      const deptBudget = db.budgetAllocations.find(b => b.department === txn.department);
+      if (deptBudget) {
+        deptBudget.budgetUtilized += txn.amount;
+        deptBudget.remainingBudget = deptBudget.budgetAllocation - deptBudget.budgetUtilized;
+        deptBudget.budgetPercentageUsed = Math.round((deptBudget.budgetUtilized / deptBudget.budgetAllocation) * 100);
+        logFinanceAudit(req.user.fullName, "Update Budget Utilization", "Budget Monitoring", `${deptBudget.budgetUtilized - txn.amount}`, `${deptBudget.budgetUtilized}`);
+      }
+    }
+  }
+
+  logFinanceAudit(req.user.fullName, "Transaction Status Shift", "Financial Transactions", oldStatus, status);
   logEvent(req.user.id, req.user.username, req.user.role, "Validate Financial Record", `Upgraded ledger transaction ${txn.transactionId} status from ${oldStatus} to ${status}`);
   saveDB();
   res.json({ status: "success", data: txn });
@@ -733,18 +1102,268 @@ app.post("/api/financial-transactions/:id/documents", authenticateToken, (req: a
     return res.status(404).json({ status: "error", message: "Financial entry ledger index not found" });
   }
 
+  const scanFile = filename || "scanned_doc.pdf";
   const newDoc = {
     id: `doc-${Date.now()}`,
     name,
     type,
-    filename: filename || "scanned_doc.pdf",
-    uploadedAt: new Date().toISOString()
+    filename: scanFile,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: req.user.fullName,
+    validationStatus: "Validated",
+    versions: [
+      { version: 1, filename: scanFile, uploadedAt: new Date().toISOString(), uploadedBy: req.user.fullName }
+    ]
   };
 
   txn.supportingDocuments.push(newDoc as any);
+  
+  logFinanceAudit(req.user.fullName, "Receipt Upload", "Supporting Documents", "None", name);
   logEvent(req.user.id, req.user.username, req.user.role, "Upload Support Doc", `Attached supporting document: "${name}" (${type}) to transaction ledger ${txn.transactionId}`);
   saveDB();
   res.json({ status: "success", data: txn });
+});
+
+// Replace/update version of a supporting document
+app.post("/api/financial-transactions/:id/documents/:docId/replace", authenticateToken, (req: any, res) => {
+  const { id, docId } = req.params;
+  const { filename } = req.body;
+
+  const txn = db.financialTransactions.find(t => t.id === id);
+  if (!txn) {
+    return res.status(404).json({ status: "error", message: "Financial entry ledger index not found" });
+  }
+
+  const doc = txn.supportingDocuments.find(d => d.id === docId);
+  if (!doc) {
+    return res.status(404).json({ status: "error", message: "Supporting document not found in this transaction" });
+  }
+
+  if (!doc.versions) {
+    doc.versions = [];
+  }
+  if (doc.versions.length === 0) {
+    doc.versions.push({
+      version: 1,
+      filename: doc.filename,
+      uploadedAt: doc.uploadedAt,
+      uploadedBy: doc.uploadedBy || "Staff uploader"
+    });
+  }
+
+  const nextVersionNum = doc.versions.length + 1;
+  const safeFilename = filename || `updated_v${nextVersionNum}_${doc.filename}`;
+
+  doc.versions.push({
+    version: nextVersionNum,
+    filename: safeFilename,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: req.user.fullName
+  });
+
+  const oldFilename = doc.filename;
+  doc.filename = safeFilename;
+  doc.uploadedAt = new Date().toISOString();
+  doc.uploadedBy = req.user.fullName;
+
+  logFinanceAudit(req.user.fullName, "Document Replaced", "Supporting Documents", oldFilename, safeFilename);
+  logEvent(req.user.id, req.user.username, req.user.role, "Replace Support Doc", `Replaced file for "${doc.name}" on ${txn.transactionId} from ${oldFilename} to ${safeFilename}`);
+  saveDB();
+
+  res.json({ status: "success", data: txn });
+});
+
+// --- NEW LIQUIDATION WORKFLOW ENDPOINTS ---
+app.get("/api/finance/liquidations", authenticateToken, (req, res) => {
+  res.json({ status: "success", data: db.liquidations || [] });
+});
+
+app.post("/api/finance/liquidations", authenticateToken, (req: any, res) => {
+  const data = req.body;
+  const newLiq = {
+    id: `liq-${Date.now()}`,
+    liquidationNo: `LIQ-2026-${Math.floor(100 + Math.random() * 900)}`,
+    requestRef: data.requestRef || `REQ-${Math.floor(1000 + Math.random() * 9000)}`,
+    employee: data.employee || req.user.fullName,
+    department: data.department || req.user.division || "Administrative and Finance Division",
+    amountReleased: Number(data.amountReleased || 0),
+    amountLiquidated: Number(data.amountLiquidated || 0),
+    remainingBalance: Number(data.amountReleased || 0) - Number(data.amountLiquidated || 0),
+    liquidationDate: data.liquidationDate || new Date().toISOString().split("T")[0],
+    status: data.status || "Pending Submission",
+    notes: data.notes || "",
+    createdAt: new Date().toISOString()
+  };
+
+  if (!db.liquidations) db.liquidations = [];
+  db.liquidations.push(newLiq as any);
+  
+  logFinanceAudit(req.user.fullName, "Create Liquidation Request", "Liquidation Monitoring", "None", newLiq.status);
+  logEvent(req.user.id, req.user.username, req.user.role, "Create Liquidation", `Created liquidation request ${newLiq.liquidationNo}`);
+  saveDB();
+  res.json({ status: "success", data: newLiq });
+});
+
+app.put("/api/finance/liquidations/:id/status", authenticateToken, (req: any, res) => {
+  const { id } = req.params;
+  const { status, note, amountLiquidated } = req.body;
+
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.FINANCE_OFFICER) {
+    return res.status(403).json({ status: "error", message: "Only Finance Officers can adjust liquidation statuses." });
+  }
+
+  const liq = db.liquidations.find(l => l.id === id);
+  if (!liq) {
+    return res.status(404).json({ status: "error", message: "Liquidation record not found" });
+  }
+
+  const oldStatus = liq.status;
+  liq.status = status;
+  if (note !== undefined) liq.notes = note;
+  if (amountLiquidated !== undefined) {
+    liq.amountLiquidated = Number(amountLiquidated);
+    liq.remainingBalance = liq.amountReleased - liq.amountLiquidated;
+  }
+
+  if (status === "Completed") {
+    liq.approvedBy = req.user.fullName;
+    // Update budget utilizing dynamically
+    const budget = db.budgetAllocations.find(b => b.department === liq.department);
+    if (budget) {
+      budget.budgetUtilized += liq.amountLiquidated;
+      budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
+      budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
+      logFinanceAudit(req.user.fullName, "Update Budget Utilization", "Budget Monitoring", `${budget.budgetUtilized - liq.amountLiquidated}`, `${budget.budgetUtilized}`);
+    }
+  }
+
+  logFinanceAudit(req.user.fullName, "Update Liquidation Workflow", "Liquidation Monitoring", oldStatus, status);
+  logEvent(req.user.id, req.user.username, req.user.role, "Update Liquidation", `Updated liquidation request ${liq.liquidationNo} to state: ${status}`);
+  saveDB();
+  res.json({ status: "success", data: liq });
+});
+
+// --- NEW BUDGET MANAGEMENT ENDPOINTS ---
+app.get("/api/finance/budgets", authenticateToken, (req, res) => {
+  res.json({ status: "success", data: db.budgetAllocations || [] });
+});
+
+app.post("/api/finance/budgets", authenticateToken, (req: any, res) => {
+  const { department, budgetAllocation } = req.body;
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
+    return res.status(403).json({ status: "error", message: "Unauthorized. Requires Budget Officer or Admin." });
+  }
+  const existing = db.budgetAllocations.find(b => b.department.toLowerCase() === department.toLowerCase());
+  if (existing) {
+    return res.status(400).json({ status: "error", message: "Allocation for department already exists. Please edit instead." });
+  }
+  const newBudget: BudgetAllocation = {
+    id: `b-${Date.now()}`,
+    department,
+    budgetAllocation: Number(budgetAllocation),
+    budgetUtilized: 0,
+    remainingBudget: Number(budgetAllocation),
+    budgetPercentageUsed: 0
+  };
+  db.budgetAllocations.push(newBudget);
+  logFinanceAudit(req.user.fullName, "Create Budget Allocation", "Budget Monitoring", "None", `${budgetAllocation} for ${department}`);
+  logEvent(req.user.id, req.user.username, req.user.role, "Create Budget", `Created new budget allocation for ${department}: PHP ${budgetAllocation}`);
+  saveDB();
+  res.json({ status: "success", data: newBudget });
+});
+
+app.put("/api/finance/budgets/:id", authenticateToken, (req: any, res) => {
+  const { id } = req.params;
+  const { budgetAllocation } = req.body;
+
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
+    return res.status(403).json({ status: "error", message: "Only Budget or Finance Officers can adjust budget allocations." });
+  }
+
+  const budget = db.budgetAllocations.find(b => b.id === id);
+  if (!budget) {
+    return res.status(404).json({ status: "error", message: "Budget allocation record not found" });
+  }
+
+  const oldAllocation = budget.budgetAllocation;
+  budget.budgetAllocation = Number(budgetAllocation);
+  budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
+  budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
+
+  logFinanceAudit(req.user.fullName, "Adjust Budget Allocation", "Budget Monitoring", `${oldAllocation}`, `${budgetAllocation}`);
+  logEvent(req.user.id, req.user.username, req.user.role, "Adjust Budget", `Adjusted budget allocation for ${budget.department} to PHP ${budgetAllocation}`);
+  saveDB();
+  res.json({ status: "success", data: budget });
+});
+
+app.get("/api/finance/budget-requests", authenticateToken, (req, res) => {
+  res.json({ status: "success", data: db.budgetRequests || [] });
+});
+
+app.post("/api/finance/budget-requests", authenticateToken, (req: any, res) => {
+  const { department, amountRequested, requestType, purpose } = req.body;
+  const newRequest: BudgetRequestItem = {
+    id: `br-${Date.now()}`,
+    department,
+    amountRequested: Number(amountRequested),
+    requestType,
+    purpose,
+    status: "Pending",
+    createdAt: new Date().toISOString()
+  };
+  if (!db.budgetRequests) {
+    db.budgetRequests = [];
+  }
+  db.budgetRequests.push(newRequest);
+  logEvent(req.user.id, req.user.username, req.user.role, "Submit Budget Request", `Submitted ${requestType} request for ${department} of PHP ${amountRequested}`);
+  saveDB();
+  res.json({ status: "success", data: newRequest });
+});
+
+app.post("/api/finance/budget-requests/:id/action", authenticateToken, (req: any, res) => {
+  const { id } = req.params;
+  const { action, remarks } = req.body; // Approved or Returned
+
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
+    return res.status(403).json({ status: "error", message: "Only Budget or Finance Officers can process budget requests." });
+  }
+
+  const reqItem = db.budgetRequests?.find(r => r.id === id);
+  if (!reqItem) {
+    return res.status(404).json({ status: "error", message: "Budget request not found" });
+  }
+
+  reqItem.status = action;
+  reqItem.remarks = remarks;
+
+  if (action === "Approved") {
+    const budget = db.budgetAllocations.find(b => b.department === reqItem.department);
+    if (budget) {
+      const oldAllocation = budget.budgetAllocation;
+      budget.budgetAllocation += reqItem.amountRequested;
+      budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
+      budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
+      logFinanceAudit(req.user.fullName, `Augment Budget Allocation via request ${reqItem.id}`, "Budget Monitoring", `${oldAllocation}`, `${budget.budgetAllocation}`);
+    } else {
+      db.budgetAllocations.push({
+        id: `b-${Date.now()}`,
+        department: reqItem.department,
+        budgetAllocation: reqItem.amountRequested,
+        budgetUtilized: 0,
+        remainingBudget: reqItem.amountRequested,
+        budgetPercentageUsed: 0
+      });
+    }
+  }
+
+  logEvent(req.user.id, req.user.username, req.user.role, `${action} Budget Request`, `${action} budget request ${id} with remarks: ${remarks}`);
+  saveDB();
+  res.json({ status: "success", data: reqItem });
+});
+
+// --- NEW FINANCE AUDIT ENDPOINT ---
+app.get("/api/finance/audit-logs", authenticateToken, (req, res) => {
+  res.json({ status: "success", data: db.financeAuditLogs || [] });
 });
 
 
@@ -756,9 +1375,9 @@ app.get("/api/assets", authenticateToken, (req, res) => {
 app.post("/api/assets", authenticateToken, (req: any, res) => {
   const data = req.body;
 
-  // Access check: Admin or Property Custodian
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
-    return res.status(403).json({ status: "error", message: "Access denied: Requires Custodian or Admin" });
+  // Access check: Admin
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Access denied: Requires Admin" });
   }
 
   const existing = db.assets.find(a => a.assetNumber === data.assetNumber);
@@ -788,7 +1407,7 @@ app.put("/api/assets/:id/status", authenticateToken, (req: any, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
     return res.status(403).json({ status: "error", message: "Unauthorized" });
   }
 
@@ -815,8 +1434,8 @@ app.post("/api/assets/:id/issue", authenticateToken, (req: any, res) => {
   const { id } = req.params;
   const { employeeId } = req.body;
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
-    return res.status(403).json({ status: "error", message: "Access restricted to Property Custodians" });
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Access restricted to Admin" });
   }
 
   const asset = db.assets.find(a => a.id === id);
@@ -855,8 +1474,8 @@ app.post("/api/assets/:id/return", authenticateToken, (req: any, res) => {
   const { id } = req.params;
   const { conditionOnReturn, clearanceStatus } = req.body;
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
-    return res.status(403).json({ status: "error", message: "Access restricted" });
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Access restricted to Admin" });
   }
 
   const asset = db.assets.find(a => a.id === id);
@@ -891,8 +1510,8 @@ app.get("/api/supplies", authenticateToken, (req, res) => {
 app.post("/api/supplies", authenticateToken, (req: any, res) => {
   const data = req.body;
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
-    return res.status(403).json({ status: "error", message: "Authorized to Custodians only" });
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Authorized to Admin only" });
   }
 
   const newSupply: SupplyItem = {
@@ -917,7 +1536,7 @@ app.get("/api/supplies/issuances", authenticateToken, (req, res) => {
 app.post("/api/supplies/issue", authenticateToken, (req: any, res) => {
   const { supplyId, issuedToId, quantity } = req.body;
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.PROPERTY_CUSTODIAN) {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
     return res.status(403).json({ status: "error", message: "Unauthorized" });
   }
 
@@ -1034,6 +1653,25 @@ app.post("/api/requests", authenticateToken, (req: any, res) => {
   }
 
   db.requests.push(fullReq);
+  
+  // Trigger system notification dynamically
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+  let targetRole: string | undefined = undefined;
+  if (fullReq.requestType === RequestType.LEAVE || fullReq.requestType === RequestType.SERVICE_RECORD || fullReq.requestType === RequestType.SUPPLY || fullReq.requestType === RequestType.VEHICLE || fullReq.requestType === RequestType.ZOOM) {
+    targetRole = UserRole.HR_OFFICER;
+  }
+  db.notifications.push({
+    id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    title: `New ${fullReq.requestType}`,
+    message: `${fullReq.employeeName} submitted a ${fullReq.requestType} for verification and approval.`,
+    type: "info",
+    isRead: false,
+    timestamp: new Date().toISOString(),
+    targetRole
+  });
+
   logEvent(req.user.id, req.user.username, req.user.role, "Create Request", `Submitted digital request: ${fullReq.requestType} for processing.`);
   saveDB();
   res.json({ status: "success", data: fullReq });
@@ -1058,12 +1696,9 @@ app.put("/api/requests/:id/approve", authenticateToken, (req: any, res) => {
   const role = req.user.role;
   let authorized = false;
 
-  if (role === UserRole.SUPER_ADMIN) authorized = true;
-  else if (request.requestType === RequestType.LEAVE && (role === UserRole.DEPARTMENT_HEAD || role === UserRole.HR_OFFICER)) authorized = true;
-  else if (request.requestType === RequestType.SERVICE_RECORD && role === UserRole.HR_OFFICER) authorized = true;
-  else if (request.requestType === RequestType.VEHICLE && role === UserRole.DEPARTMENT_HEAD) authorized = true;
-  else if (request.requestType === RequestType.ZOOM && role === UserRole.DEPARTMENT_HEAD) authorized = true;
-  else if (request.requestType === RequestType.SUPPLY && role === UserRole.PROPERTY_CUSTODIAN) authorized = true;
+  if (role === UserRole.SUPER_ADMIN || role === UserRole.HR_OFFICER) {
+    authorized = true;
+  }
 
   if (!authorized) {
     return res.status(403).json({ status: "error", message: `Your role [${role}] is unauthorized to approve ${request.requestType}` });
@@ -1098,6 +1733,20 @@ app.put("/api/requests/:id/approve", authenticateToken, (req: any, res) => {
   }
 
   logEvent(req.user.id, req.user.username, req.user.role, "Act on Request", `Adjudicated request ID: ${request.id} for "${request.employeeName}" to state: [${request.status}]`);
+  
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+  db.notifications.push({
+    id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    title: `Request ${request.status}`,
+    message: `The ${request.requestType} submitted by ${request.employeeName} has been ${request.status === RequestStatus.APPROVED ? "Approved" : "Rejected"}.`,
+    type: request.status === RequestStatus.APPROVED ? "success" : "warning",
+    isRead: false,
+    timestamp: new Date().toISOString(),
+    targetRole: UserRole.EMPLOYEE // standard notification readable on personnel portal desk
+  });
+
   saveDB();
   res.json({ status: "success", data: request });
 });
@@ -1161,6 +1810,46 @@ app.get("/api/audit-logs", authenticateToken, (req: any, res) => {
     return res.status(403).json({ status: "error", message: "Only administrators can review operational security audits" });
   }
   res.json({ status: "success", data: db.auditLogs });
+});
+
+// 8. Dynamic Notifications APIs
+app.get("/api/notifications", authenticateToken, (req: any, res) => {
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+  const role = req.user.role;
+  // Send notifications belonging to this role OR globals (which have no targetRole)
+  const filtered = db.notifications.filter(n => !n.targetRole || n.targetRole === role);
+  res.json({ status: "success", data: filtered });
+});
+
+app.post("/api/notifications/:id/read", authenticateToken, (req: any, res) => {
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+  const { id } = req.params;
+  const notif = db.notifications.find(n => n.id === id);
+  if (notif) {
+    notif.isRead = true;
+    saveDB();
+    res.json({ status: "success", data: notif });
+  } else {
+    res.status(404).json({ status: "error", message: "Notification slot not found" });
+  }
+});
+
+app.post("/api/notifications/read-all", authenticateToken, (req: any, res) => {
+  if (!db.notifications) {
+    db.notifications = [];
+  }
+  const role = req.user.role;
+  db.notifications.forEach(n => {
+    if (!n.targetRole || n.targetRole === role) {
+      n.isRead = true;
+    }
+  });
+  saveDB();
+  res.json({ status: "success", message: "All user notifications marked as read successfully" });
 });
 
 // Handle serving the Vite client in development and compiled files in production

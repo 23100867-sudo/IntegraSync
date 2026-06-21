@@ -1,10 +1,9 @@
 export enum UserRole {
-  SUPER_ADMIN = "Super Administrator",
+  SUPER_ADMIN = "Admin",
   HR_OFFICER = "HR Officer",
-  FINANCE_OFFICER = "Finance Officer",
-  PROPERTY_CUSTODIAN = "Property Custodian",
-  DEPARTMENT_HEAD = "Department Head",
-  EMPLOYEE = "Employee",
+  FINANCE_OFFICER = "Financial Officer",
+  BUDGET_OFFICER = "Budget Officer",
+  EMPLOYEE = "Personnel",
 }
 
 export interface User {
@@ -83,6 +82,11 @@ export interface FinancialTransaction {
   status: TransactionStatus;
   supportingDocuments: SupportingDocument[];
   history: TransactionHistory[];
+  employeeRef?: string;
+  department?: string;
+  category?: string;
+  createdBy?: string;
+  dateCreated?: string;
 }
 
 export interface SupportingDocument {
@@ -91,6 +95,9 @@ export interface SupportingDocument {
   type: "Purchase Request" | "Liquidation Report" | "Invoice" | "Disbursement Voucher" | "Other";
   filename: string;
   uploadedAt: string;
+  uploadedBy?: string;
+  validationStatus?: string;
+  versions?: { version: number; filename: string; uploadedAt: string; uploadedBy: string }[];
 }
 
 export interface TransactionHistory {
@@ -99,6 +106,52 @@ export interface TransactionHistory {
   changedBy: string;
   changedAt: string;
   remarks: string;
+}
+
+export interface Liquidation {
+  id: string;
+  liquidationNo: string;
+  requestRef: string;
+  employee: string;
+  department: string;
+  amountReleased: number;
+  amountLiquidated: number;
+  remainingBalance: number;
+  liquidationDate: string;
+  status: "Pending Submission" | "Submitted" | "Under Review" | "Approved" | "Completed";
+  notes?: string;
+  approvedBy?: string;
+  createdAt: string;
+}
+
+export interface BudgetAllocation {
+  id: string;
+  department: string;
+  budgetAllocation: number;
+  budgetUtilized: number;
+  remainingBudget: number;
+  budgetPercentageUsed: number;
+}
+
+export interface BudgetRequestItem {
+  id: string;
+  department: string;
+  amountRequested: number;
+  requestType: "Augmentation" | "Realignment" | "Emergency";
+  purpose: string;
+  status: "Pending" | "Approved" | "Returned";
+  remarks?: string;
+  createdAt: string;
+}
+
+export interface FinanceAuditLog {
+  id: string;
+  user: string;
+  action: string;
+  module: string;
+  timestamp: string;
+  previousValue: string;
+  newValue: string;
 }
 
 export enum AssetStatus {
@@ -225,3 +278,14 @@ export interface AuditLog {
   action: string; // e.g., "Login", "Create Employee", "Approve Request", "Update Transaction"
   details: string; // Brief explanatory text
 }
+
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: "info" | "warning" | "success" | "urgent";
+  isRead: boolean;
+  timestamp: string;
+  targetRole?: string; // If undefined, visible to everyone. If specified, only visible to users with this role
+}
+

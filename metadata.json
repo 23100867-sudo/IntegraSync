@@ -1,6 +1,6 @@
 {
   "name": "Integrated Personnel and Financial Management System",
-  "description": "An integrated system for the HSAC RAB 1 managing employee records, financial tracking, assets, service requests, and analytics.",
+  "description": "IntegraSync: An integrated personnel and financial management system for the HSAC RAB 1 managing employee rosters, liquidation vouchers, treasury budget-utilization, and compliance reports.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

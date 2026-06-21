@@ -72,7 +72,7 @@ export default function AssetsView({ user, assets, supplies, employees, fetchSum
     clearanceStatus: "Cleared" as any
   });
 
-  const isCustodianOrAdmin = [UserRole.SUPER_ADMIN, UserRole.PROPERTY_CUSTODIAN].includes(user.role);
+  const isCustodianOrAdmin = [UserRole.SUPER_ADMIN].includes(user.role);
 
   useEffect(() => {
     if (selectedAsset) {
@@ -438,12 +438,12 @@ export default function AssetsView({ user, assets, supplies, employees, fetchSum
         <div className="w-96 bg-white border-l border-slate-200 overflow-y-auto flex flex-col shrink-0">
           
           {/* HEADER */}
-          <div className="p-4 bg-slate-100 text-slate-800 border-b border-slate-200 flex items-center justify-between sticky top-0 z-10">
+          <div className="p-4 bg-slate-900 text-white flex items-center justify-between sticky top-0 z-10">
             <div className="flex items-center space-x-2">
-              <ClipboardCopy size={16} className="text-amber-600" />
+              <ClipboardCopy size={16} className="text-amber-400" />
               <h3 className="text-xs font-bold uppercase tracking-wider">Property Card Inspection</h3>
             </div>
-            <button onClick={() => setSelectedAsset(null)} className="text-slate-500 hover:text-slate-800 p-1 cursor-pointer">
+            <button onClick={() => setSelectedAsset(null)} className="text-slate-400 hover:text-white p-1">
               <X size={16} />
             </button>
           </div>
@@ -457,7 +457,7 @@ export default function AssetsView({ user, assets, supplies, employees, fetchSum
               <h3 className="text-sm font-extrabold font-mono text-slate-800">{selectedAsset.assetNumber}</h3>
               <p className="text-[11px] leading-relaxed text-slate-600 font-semibold mt-2 px-1">{selectedAsset.description}</p>
               
-              <div className="mt-3 inline-block px-3 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs font-bold font-mono">
+              <div className="mt-3 inline-block px-3 py-1 bg-slate-900 rounded-lg text-amber-400 text-xs font-bold font-mono">
                 Asset Val: {formatCurrency(selectedAsset.cost)}
               </div>
             </div>

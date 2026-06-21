@@ -10,6 +10,7 @@ import AssetsView from "./components/AssetsView";
 import RequestsView from "./components/RequestsView";
 import AuditView from "./components/AuditView";
 import ReportsView from "./components/ReportsView";
+import HsacLogo from "./components/HsacLogo";
 import { 
   Building, 
   Lock, 
@@ -18,12 +19,16 @@ import {
   Settings, 
   FolderLock, 
   Sparkles,
-  Fingerprint
+  Fingerprint,
+  BookOpen,
+  X
 } from "lucide-react";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<string>("dashboard");
+  const [activeFinanceSubTab, setActiveFinanceSubTab] = useState<string>("dashboard");
+  const [helpOpen, setHelpOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -56,11 +61,29 @@ export default function App() {
     setRefreshTrigger(prev => prev + 1);
   }
 
+  function getDefaultTabForRole(role: UserRole): string {
+    switch (role) {
+      case UserRole.SUPER_ADMIN:
+        return "dashboard";
+      case UserRole.HR_OFFICER:
+        return "employees";
+      case UserRole.FINANCE_OFFICER:
+        return "finance";
+      case UserRole.BUDGET_OFFICER:
+        return "budget";
+      case UserRole.EMPLOYEE:
+      default:
+        return "assets";
+    }
+  }
+
   async function checkSession() {
     try {
       const res = await apiCall("/api/sessions/current");
       if (res.status === "success" && res.data) {
-        setUser(res.data);
+        const loggedUser = res.data;
+        setUser(loggedUser);
+        setActiveTab(getDefaultTabForRole(loggedUser.role));
       }
     } catch {
       // Normal: Not logged in
@@ -84,8 +107,12 @@ export default function App() {
       if (reqRes.status === "success") setRequests(reqRes.data);
 
       await fetchSummary();
-    } catch (err) {
-      console.error("Grave: Server sync interrupted. Retrying connection...", err);
+    } catch (err: any) {
+      if (err?.message === "Failed to fetch" || err?.message?.includes("fetch") || err?.toString()?.includes("Failed to fetch")) {
+        console.warn("Server sync interrupted momentarily:", err?.message || err);
+      } else {
+        console.error("Grave: Server sync interrupted. Retrying connection...", err);
+      }
     }
   }
 
@@ -95,8 +122,12 @@ export default function App() {
       if (res.status === "success") {
         setSummary(res.data);
       }
-    } catch (err) {
-      console.error("Failed to compile central stats", err);
+    } catch (err: any) {
+      if (err?.message === "Failed to fetch" || err?.message?.includes("fetch") || err?.toString()?.includes("Failed to fetch")) {
+        console.warn("Central stats momentarily unreachable:", err?.message || err);
+      } else {
+        console.error("Failed to compile central stats", err);
+      }
     }
   }
 
@@ -115,35 +146,12 @@ export default function App() {
         if (token) {
           localStorage.setItem("ipfms_token", token);
         }
-        setUser(res.data?.user || res.user);
-        setActiveTab("dashboard");
+        const loggedUser = res.data?.user || res.user;
+        setUser(loggedUser);
+        setActiveTab(getDefaultTabForRole(loggedUser.role));
       }
     } catch (err: any) {
       setAuthError(err.message || "Invalid credentials. Please attempt again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Fast-track sandbox shortcut for easy validation of RBAC boundaries
-  async function handleSandboxLogin(email: string) {
-    setAuthError("");
-    setLoading(true);
-    try {
-      const res = await apiCall("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password: "sandbox-master-pass" })
-      });
-      if (res.status === "success") {
-        const token = res.token || (res.data && res.data.token);
-        if (token) {
-          localStorage.setItem("ipfms_token", token);
-        }
-        setUser(res.data?.user || res.user);
-        setActiveTab("dashboard");
-      }
-    } catch (err: any) {
-      setAuthError(err.message || "Sandbox authorization failure");
     } finally {
       setLoading(false);
     }
@@ -167,6 +175,13 @@ export default function App() {
 
     switch (activeTab) {
       case "dashboard":
+        if (user.role !== UserRole.SUPER_ADMIN) {
+          return (
+            <div className="p-12 text-center space-y-4">
+              <p className="text-slate-500 font-medium">Redirecting you to your authorized desk view...</p>
+            </div>
+          );
+        }
         return (
           <DashboardView 
             user={user} 
@@ -191,6 +206,19 @@ export default function App() {
             transactions={transactions} 
             fetchSummary={fetchSummary}
             onRefresh={triggerRefresh}
+            activeSubTab={activeFinanceSubTab}
+            setActiveSubTab={setActiveFinanceSubTab}
+          />
+        );
+      case "budget":
+        return (
+          <FinanceView 
+            user={user} 
+            transactions={transactions} 
+            fetchSummary={fetchSummary}
+            onRefresh={triggerRefresh}
+            activeSubTab="budgets"
+            setActiveSubTab={() => {}}
           />
         );
       case "assets":
@@ -238,36 +266,39 @@ export default function App() {
   // Gated Gateway frame
   if (!user) {
     return (
-      <div id="login-gateway-container" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+      <div id="login-gateway-container" className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
         
         {/* LOGO TITLE SECTION */}
-        <div className="text-center mb-6 max-w-md select-none">
-          <div className="h-14 w-14 bg-gradient-to-br from-amber-400 to-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-xl border border-amber-350">
-            <Building className="text-white" size={28} />
+        <div className="text-center mb-6 max-w-lg select-none px-4">
+          <div className="mb-4 flex justify-center">
+            <HsacLogo size={96} className="bg-white rounded-full p-1.5 border-4 border-blue-600/30 shadow-2xl" />
           </div>
-          <h1 className="text-sm font-extrabold uppercase tracking-widest text-amber-600 font-mono">
-            HSAC RAB I
+          <h1 className="text-base font-extrabold uppercase tracking-[0.2em] text-blue-400 font-mono">
+            IntegraSync
           </h1>
-          <p className="text-xl font-extrabold font-sans text-slate-800 tracking-tight mt-1">
+          <p className="text-xl font-extrabold font-sans text-white tracking-tight mt-1.5">
             Integrated Personnel & Financial Management System
           </p>
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-mono mt-2">
-            Regional Adjudication Branch I • San Fernando, La Union
+          <p className="text-xs text-slate-400 uppercase tracking-widest font-mono mt-2 flex items-center justify-center gap-2">
+            <span>Regional Adjudication Branch I</span>
+            <span className="text-slate-600">•</span>
+            <span>San Fernando, La Union</span>
           </p>
         </div>
 
-        {/* COMBINED CREDENTIALS AND SANDBOX SHORTCUT CARD */}
-        <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-2xl grid grid-cols-1 md:grid-cols-2">
-          
-          {/* LEFT: FORM LOGIN PORTAL */}
-          <div className="p-8 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-center space-y-6">
+        {/* SECURE LOGIN CARD */}
+        <div className="w-full max-w-md bg-slate-950 border border-slate-800/80 rounded-3xl overflow-hidden shadow-2xl">
+          <div className="p-8 flex flex-col justify-center space-y-6">
             <div>
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 font-mono">Secure Access</h2>
-              <p className="text-xs text-slate-500 mt-1">Input formal Department credentials authorized by SEC-IT division.</p>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 font-mono flex items-center gap-1.5">
+                <Lock size={12} className="text-blue-500" />
+                <span>Authorized Gateway</span>
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">Input formal Department credentials for secure database entry.</p>
             </div>
 
             {authError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-700 leading-relaxed font-semibold">
+              <div className="p-3 bg-rose-950/60 border border-rose-900 rounded-xl text-[11px] text-rose-300 leading-relaxed font-semibold font-sans">
                 {authError}
               </div>
             )}
@@ -281,7 +312,7 @@ export default function App() {
                   placeholder="name@hsac.gov.ph"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-900 p-3 rounded-xl text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none transition-all font-mono"
+                  className="w-full bg-slate-900 border border-slate-800 text-white p-3 rounded-xl text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all font-mono"
                 />
               </div>
 
@@ -293,63 +324,23 @@ export default function App() {
                   placeholder="••••••••••••"
                   value={passwordInput}
                   onChange={(e) => setPasswordInput(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-900 p-3 rounded-xl text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none transition-all font-mono"
+                  className="w-full bg-slate-900 border border-slate-800 text-white p-3 rounded-xl text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all font-mono"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:bg-amber-600 py-3 rounded-xl text-xs font-bold uppercase shadow-lg transition-all tracking-wider flex items-center justify-center gap-1.5 cursor-pointer"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-xs font-bold uppercase shadow-lg transition-all tracking-wider flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Fingerprint size={16} />
                 <span>Verify & Sign In</span>
               </button>
             </form>
           </div>
-
-          {/* RIGHT: FAST-TRACK ROLE DESK GATEWAYS */}
-          <div className="p-8 bg-slate-50 flex flex-col justify-between space-y-6">
-            <div>
-              <h2 className="text-xs font-mono font-bold uppercase tracking-widest text-slate-500">Sandbox RBAC Testing Terminal</h2>
-              <p className="text-xs text-slate-500 mt-1">Audit department privileges and workflows by fast-tracking sandbox logins.</p>
-            </div>
-
-            {/* QUICK LINK GATEWAYS */}
-            <div className="grid grid-cols-1 gap-2.5">
-              {[
-                { email: "super-admin@hsac.gov.ph", label: "Super Administrator Desk", desc: "Access immutable security audits and master declassifications.", role: "Admin Office" },
-                { email: "hr@hsac.gov.ph", label: "HR Management Office Desk", desc: "Rosters coordination, PDS form uploads, and training seminars credits.", role: "HR Office" },
-                { email: "finance@hsac.gov.ph", label: "Finance & Budget Desk", desc: "Expense journals, vouchers auditing, and and liquidation checkmarks.", role: "Financial" },
-                { email: "custodian@hsac.gov.ph", label: "Property & Asset Custody Desk", desc: "Acquisition registers, PAR signature receipt hand-offs, and supply shelf balances.", role: "Custodial" },
-                { email: "employee@hsac.gov.ph", label: "Employee / Adjudication Desk", desc: "Submit leave, Zoom rooms, dispatch vehicles, and receive materials.", role: "Personnel" }
-              ].map((pill, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleSandboxLogin(pill.email)}
-                  type="button"
-                  className="bg-white border border-slate-200 hover:border-amber-400 hover:bg-amber-50/20 p-3 rounded-xl text-left transition-all flex items-center justify-between group shadow-sm cursor-pointer"
-                >
-                  <div className="space-y-1 pr-4">
-                    <span className="text-[10px] font-mono text-amber-600 font-extrabold uppercase tracking-wider block">
-                      {pill.role}
-                    </span>
-                    <p className="text-xs font-bold text-slate-800 group-hover:text-amber-700 transition-colors">{pill.label}</p>
-                    <p className="text-[10px] text-slate-500 leading-normal">{pill.desc}</p>
-                  </div>
-                  <UserCheck size={16} className="text-slate-400 group-hover:text-amber-600 shrink-0 transition-colors" />
-                </button>
-              ))}
-            </div>
-
-            <div className="text-[10px] text-slate-500 font-mono text-center flex items-center justify-center gap-1">
-              <ShieldCheck size={11} className="text-emerald-500 animate-pulse" />
-              <span>Full-Stack Sandboxed Security Session Active</span>
-            </div>
-          </div>
         </div>
 
-        <p className="text-[11px] text-slate-400 font-mono mt-6 text-center select-none leading-relaxed">
+        <p className="text-[11px] text-slate-600 font-mono mt-6 text-center select-none leading-relaxed">
           San Fernando Adjudication Branch No. 1 Portal • SEC-IS Security Enforced<br />
           Built in React, Tailwind, and Node.js Node Container
         </p>
@@ -359,7 +350,7 @@ export default function App() {
 
   // Gated System Workspace layout frame
   return (
-    <div id="applet-viewport-frame" className="h-screen w-screen flex overflow-hidden bg-slate-50 text-slate-800 font-sans">
+    <div id="applet-viewport-frame" className="h-screen w-screen flex overflow-hidden bg-slate-950 text-slate-800 font-sans font-sans">
       
       {/* SIDEBAR NAVIGATION */}
       <Sidebar 
@@ -367,6 +358,8 @@ export default function App() {
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         onLogout={handleSignOut}
+        activeFinanceSubTab={activeFinanceSubTab}
+        setActiveFinanceSubTab={setActiveFinanceSubTab}
       />
 
       {/* CORE WORKSPACE FRAME */}
@@ -375,6 +368,7 @@ export default function App() {
         {/* HEADER BRAND AND CLOCK */}
         <Header 
           user={user} 
+          onOpenHelp={() => setHelpOpen(true)}
         />
 
         {/* ACTIVE MODULE CONTAINER SCREEN */}
@@ -382,6 +376,78 @@ export default function App() {
           {renderActiveView()}
         </main>
       </div>
+
+      {/* SYSTEM DOCUMENTATION MODAL OVERLAY */}
+      {helpOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-slate-800">
+                <BookOpen size={18} className="text-blue-600" />
+                <h3 className="font-semibold text-sm tracking-tight">HSAC RAB 1 IPFMS Guide</h3>
+              </div>
+              <button 
+                onClick={() => setHelpOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 font-sans text-xs text-slate-600 leading-relaxed max-h-[70vh] overflow-y-auto">
+              <p className="text-slate-500">
+                Welcome to the <strong>Integrated Personnel & Financial Management Portal (IntegraSync)</strong> of the Human Settlements Adjudication Commission (HSAC) Regional Adjudication Branch No. 1.
+              </p>
+
+              <div className="border border-blue-100 bg-blue-50/50 rounded-xl p-4 space-y-2">
+                <p className="font-semibold text-blue-800 text-[11px] uppercase tracking-wider font-mono">System Guideline Checklist:</p>
+                <ul className="space-y-2 list-none pl-0">
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">✦</span>
+                    <span><strong>Employee Personal Data Sheets (PDS):</strong> Manage full personnel rosters, upload authorized documents, and track compliance certifications (Civil Service and TAM compliant).</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">✦</span>
+                    <span><strong>Financial Tracking & Vouchers:</strong> Log expenditure receipts, submit and audit digital liquidation scopes, and reconcile programs or financial transactions.</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">✦</span>
+                    <span><strong>Treasury Budgets & FAR Compliance:</strong> Monitor budget allotments, track obligational liabilities, and export audit-ready SAAODB / FAR 1, FAR 1A and FAR 3 spreadsheet books.</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">✦</span>
+                    <span><strong>Property & Supply Custody:</strong> Monitor accountability indexes, issue signature receipts (PAR), and track active inventories.</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-600 mr-2">✦</span>
+                    <span><strong>Adjudication & Services Desk:</strong> File leaves, request Zoom rooms, dispatch official vehicles, and receive equipment.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono pt-2 border-t border-slate-100">
+                <span className="flex items-center text-emerald-600 font-semibold uppercase tracking-wider">
+                  <ShieldCheck size={12} className="mr-1" />
+                  RA 10173 Crypt-Secure
+                </span>
+                <span>Branch: San Fernando City, La Union</span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={() => setHelpOpen(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-sm transition-all"
+              >
+                Dismiss Guideline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
