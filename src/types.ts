@@ -13,6 +13,7 @@ export interface User {
   fullName: string;
   role: UserRole;
   employeeId?: string;
+  status?: "Active" | "Deactivated";
   createdAt: string;
 }
 

@@ -19,6 +19,7 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [selectedRole, setSelectedRole] = useState<UserRole>(UserRole.EMPLOYEE);
+  const [accountStatus, setAccountStatus] = useState<"Active" | "Deactivated">("Active");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -47,6 +48,7 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
     setEmail("");
     setFullName("");
     setSelectedRole(UserRole.EMPLOYEE);
+    setAccountStatus("Active");
     setError("");
     setSuccess("");
     setModalOpen(true);
@@ -58,6 +60,7 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
     setEmail(usr.email);
     setFullName(usr.fullName);
     setSelectedRole(usr.role);
+    setAccountStatus(usr.status || "Active");
     setError("");
     setSuccess("");
     setModalOpen(true);
@@ -78,7 +81,7 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
         // Edit User
         const res = await apiCall(`/api/admin/users/${editingUser.id}`, {
           method: "PUT",
-          body: JSON.stringify({ username, email, fullName, role: selectedRole })
+          body: JSON.stringify({ username, email, fullName, role: selectedRole, status: accountStatus })
         });
         if (res.status === "success") {
           setSuccess("User account details calibrated successfully.");
@@ -89,7 +92,7 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
         // Create User
         const res = await apiCall("/api/admin/users", {
           method: "POST",
-          body: JSON.stringify({ username, email, fullName, role: selectedRole })
+          body: JSON.stringify({ username, email, fullName, role: selectedRole, status: accountStatus })
         });
         if (res.status === "success") {
           setSuccess("Brand new user account successfully registered and activated.");
@@ -165,20 +168,21 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
                   <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono">System Username</th>
                   <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono">Email Address</th>
                   <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono">Access Level Role</th>
-                  <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono">Temporary Employee ID</th>
+                  <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono">Employee ID</th>
+                  <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono">Status</th>
                   <th className="px-6 py-3.5 text-[10px] font-bold text-slate-400 uppercase font-mono text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center text-xs text-slate-400 font-sans">
+                    <td colSpan={7} className="p-12 text-center text-xs text-slate-400 font-sans">
                       Loading local user credential ledger directories...
                     </td>
                   </tr>
                 ) : filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-12 text-center text-xs text-slate-400 font-sans">
+                    <td colSpan={7} className="p-12 text-center text-xs text-slate-400 font-sans">
                       No matching registered accounts found.
                     </td>
                   </tr>
@@ -225,8 +229,48 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
                       <td className="px-6 py-4 text-xs font-mono text-slate-500">
                         {usr.employeeId || "None Assigned"}
                       </td>
+                      <td className="px-6 py-4">
+                        <span className={`text-[10px] px-2.5 py-1 rounded-full font-semibold font-mono tracking-wider border ${
+                          (usr.status || "Active") === "Active"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-rose-50 text-rose-700 border-rose-200"
+                        }`}>
+                          {usr.status || "Active"}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end items-center space-x-2">
+                          {usr.username !== "admin" && usr.id !== currentUser.id && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const nextStatus = (usr.status || "Active") === "Active" ? "Deactivated" : "Active";
+                                try {
+                                  setLoading(true);
+                                  const res = await apiCall(`/api/admin/users/${usr.id}`, {
+                                    method: "PUT",
+                                    body: JSON.stringify({ status: nextStatus })
+                                  });
+                                  if (res.status === "success") {
+                                    fetchUsers();
+                                  }
+                                } catch (err: any) {
+                                  setError(err.message || "Failed to alter status.");
+                                } finally {
+                                  setLoading(false);
+                                }
+                              }}
+                              className={`p-1 px-2.5 py-1.5 rounded text-xs flex items-center space-x-1 cursor-pointer transition-colors ${
+                                (usr.status || "Active") === "Active"
+                                  ? "hover:bg-amber-50 text-amber-600 hover:text-amber-700"
+                                  : "hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700"
+                              }`}
+                            >
+                              <UserCheck size={12} />
+                              <span>{(usr.status || "Active") === "Active" ? "Deactivate" : "Activate"}</span>
+                            </button>
+                          )}
+
                           <button
                             onClick={() => openEditModal(usr)}
                             className="p-1 px-2.5 py-1.5 hover:bg-slate-100 rounded text-slate-500 hover:text-slate-700 text-xs flex items-center space-x-1 cursor-pointer transition-colors"
@@ -334,6 +378,18 @@ export default function UserAccountsView({ currentUser }: UserAccountsViewProps)
                   <option value={UserRole.FINANCE_OFFICER}>Financial Officer</option>
                   <option value={UserRole.BUDGET_OFFICER}>Budget Officer</option>
                   <option value={UserRole.EMPLOYEE}>Employee / Personnel</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase font-mono">Logon Status</label>
+                <select
+                  value={accountStatus}
+                  onChange={e => setAccountStatus(e.target.value as "Active" | "Deactivated")}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                >
+                  <option value="Active">Active</option>
+                  <option value="Deactivated">Deactivated</option>
                 </select>
               </div>
 

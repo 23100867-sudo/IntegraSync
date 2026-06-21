@@ -350,11 +350,11 @@ function getInitialData(): DBStructure {
   // Set seed data
   const seedDB: DBStructure = {
     users: [
-      { id: "u-1", username: "admin", email: "admin@hsac.gov.ph", fullName: "Hon. Romeo M. Alcantara", role: UserRole.SUPER_ADMIN, employeeId: "EMP001", createdAt: "2026-01-15T08:00:00Z" },
-      { id: "u-2", username: "hr", email: "clara.santos@hsac.gov.ph", fullName: "Maria Clara V. Santos", role: UserRole.HR_OFFICER, employeeId: "EMP002", createdAt: "2026-01-15T08:30:00Z" },
-      { id: "u-3", username: "finance", email: "juan.delacruz@hsac.gov.ph", fullName: "Juan dela Cruz", role: UserRole.FINANCE_OFFICER, employeeId: "EMP003", createdAt: "2026-01-15T09:00:00Z" },
-      { id: "u-6", username: "employee", email: "andres.bonifacio@hsac.gov.ph", fullName: "Andres B. Bonifacio", role: UserRole.EMPLOYEE, employeeId: "EMP006", createdAt: "2026-01-15T10:00:00Z" },
-      { id: "u-7", username: "budget", email: "budget@hsac.gov.ph", fullName: "Francisco F. Balagtas", role: UserRole.BUDGET_OFFICER, employeeId: "EMP007", createdAt: "2026-01-15T10:15:00Z" },
+      { id: "u-1", username: "admin", email: "admin@hsac.gov.ph", fullName: "Hon. Romeo M. Alcantara", role: UserRole.SUPER_ADMIN, employeeId: "EMP001", status: "Active", createdAt: "2026-01-15T08:00:00Z" },
+      { id: "u-2", username: "hr", email: "clara.santos@hsac.gov.ph", fullName: "Maria Clara V. Santos", role: UserRole.HR_OFFICER, employeeId: "EMP002", status: "Active", createdAt: "2026-01-15T08:30:00Z" },
+      { id: "u-3", username: "finance", email: "juan.delacruz@hsac.gov.ph", fullName: "Juan dela Cruz", role: UserRole.FINANCE_OFFICER, employeeId: "EMP003", status: "Active", createdAt: "2026-01-15T09:00:00Z" },
+      { id: "u-6", username: "employee", email: "andres.bonifacio@hsac.gov.ph", fullName: "Andres B. Bonifacio", role: UserRole.EMPLOYEE, employeeId: "EMP006", status: "Active", createdAt: "2026-01-15T10:00:00Z" },
+      { id: "u-7", username: "budget", email: "budget@hsac.gov.ph", fullName: "Francisco F. Balagtas", role: UserRole.BUDGET_OFFICER, employeeId: "EMP007", status: "Active", createdAt: "2026-01-15T10:15:00Z" },
     ],
     employees: [
       {
@@ -845,6 +845,11 @@ app.post("/api/auth/login", (req, res) => {
   const isValidPassword = password === "password123" || password === "sandbox-master-pass";
 
   if (user && isValidPassword) {
+    if (user.status === "Deactivated") {
+      logEvent(user.id, user.username, user.role, "Blocked Login Attempt", "A blocked login attempt was recorded for deactivated account credentials.");
+      return res.status(403).json({ status: "error", message: "This user credentials account is Deactivated. Please consult the Division Chief / Administrator." });
+    }
+
     // Return a mocked JWT containing the profile data
     const tokenPayload = Buffer.from(JSON.stringify({
       id: user.id,
@@ -1980,7 +1985,7 @@ app.post("/api/admin/users", authenticateToken, (req: any, res) => {
   if (req.user.role !== UserRole.SUPER_ADMIN) {
     return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief privileges" });
   }
-  const { username, email, fullName, role } = req.body;
+  const { username, email, fullName, role, status } = req.body;
   if (!username || !email || !fullName || !role) {
     return res.status(400).json({ status: "error", message: "Please supply all required properties" });
   }
@@ -1996,6 +2001,7 @@ app.post("/api/admin/users", authenticateToken, (req: any, res) => {
     email,
     fullName,
     role,
+    status: status || "Active",
     employeeId: `EMP${Math.floor(100 + Math.random() * 900)}`,
     createdAt: new Date().toISOString()
   };
@@ -2011,7 +2017,7 @@ app.put("/api/admin/users/:id", authenticateToken, (req: any, res) => {
     return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief privileges" });
   }
   const { id } = req.params;
-  const { fullName, email, role, username } = req.body;
+  const { fullName, email, role, username, status } = req.body;
   
   const targetUser = db.users.find(u => u.id === id);
   if (!targetUser) {
@@ -2022,8 +2028,9 @@ app.put("/api/admin/users/:id", authenticateToken, (req: any, res) => {
   if (email) targetUser.email = email;
   if (role) targetUser.role = role;
   if (username) targetUser.username = username;
+  if (status) targetUser.status = status;
 
-  logEvent(req.user.id, req.user.username, req.user.role, "Modify User Account", `Modified user details for: ${targetUser.username}`);
+  logEvent(req.user.id, req.user.username, req.user.role, "Modify User Account", `Modified user details for: ${targetUser.username} (${status || targetUser.status})`);
   saveDB();
   res.json({ status: "success", data: targetUser });
 });
