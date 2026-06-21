@@ -1136,7 +1136,7 @@ export default function FinanceView({
                 <span className="text-[10px] text-slate-400 font-mono tracking-tight font-black">{txnList.reduce((acc, t) => acc + (t.supportingDocuments?.length || 0), 0)} FILES MANAGED</span>
               </div>
 
-              <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+              <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto custom-scrollbar border border-slate-150 rounded-lg p-1 bg-white">
                 {txnList.map((tx) => (
                   tx.supportingDocuments?.map((doc: SupportingDocument) => (
                     <div key={doc.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white hover:bg-slate-50/50 transition-colors">

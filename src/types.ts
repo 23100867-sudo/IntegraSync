@@ -1,5 +1,5 @@
 export enum UserRole {
-  SUPER_ADMIN = "Admin",
+  SUPER_ADMIN = "Administrator / Division Chief",
   HR_OFFICER = "HR Officer",
   FINANCE_OFFICER = "Financial Officer",
   BUDGET_OFFICER = "Budget Officer",
@@ -217,7 +217,12 @@ export enum RequestType {
 }
 
 export enum RequestStatus {
-  PENDING = "Pending Review",
+  PENDING = "Pending HR Review",
+  PENDING_HR_REVIEW = "Pending HR Review",
+  RETURNED_BY_HR = "Returned by HR",
+  ENDORSED_TO_CHIEF = "Endorsed to Division Chief",
+  PENDING_CHIEF_APPROVAL = "Pending Division Chief Approval",
+  RETURNED_BY_CHIEF = "Returned by Division Chief",
   APPROVED = "Approved",
   REJECTED = "Rejected",
 }
@@ -288,4 +293,49 @@ export interface Notification {
   timestamp: string;
   targetRole?: string; // If undefined, visible to everyone. If specified, only visible to users with this role
 }
+
+export interface Activity {
+  id: string;
+  activityNo: string;
+  title: string;
+  description: string;
+  dateScheduled: string;
+  allottedBudget: number;
+  budgetId: string; // linked to BudgetAllocation
+  assignedEmployeeId: string; // Employee ID (EMP006, etc.) or Employee name
+  status: "Active" | "Completed" | "Pending";
+}
+
+export interface LiquidationSubmission {
+  id: string;
+  submissionNo: string;
+  activityId: string;
+  employeeId: string; // EMP006, etc.
+  employeeName: string;
+  totalReleased: number;
+  totalSpent: number;
+  remainingBalance: number;
+  remarks: string;
+  supportingDocs: { id: string; name: string; type: string; filename: string; uploadedAt: string }[];
+  
+  // Three-tier statuses
+  hrStatus: "Pending Review" | "Verified & Forwarded" | "Returned by HR";
+  hrRemarks?: string;
+  hrVerifiedBy?: string;
+  hrVerifiedAt?: string;
+
+  financeStatus: "Pending Validation" | "Validated & Endorsed" | "Returned by Finance";
+  financeRemarks?: string;
+  financeValidatedBy?: string;
+  financeValidatedAt?: string;
+
+  divisionChiefStatus: "Pending Chief Approval" | "Approved" | "Returned by Chief" | "Rejected";
+  divisionChiefRemarks?: string;
+  divisionChiefApprovedBy?: string;
+  divisionChiefApprovedAt?: string;
+
+  status: "Pending HR Review" | "Verified & Forwarded" | "Validated & Endorsed" | "Approved" | "Returned" | "Rejected";
+  createdAt: string;
+}
+
 

@@ -14,7 +14,9 @@ import {
   Percent,
   History,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  ShieldCheck,
+  Settings
 } from "lucide-react";
 import { User, UserRole } from "../types";
 import HsacLogo from "./HsacLogo";
@@ -72,20 +74,44 @@ export default function Sidebar({
       visible: [UserRole.SUPER_ADMIN, UserRole.BUDGET_OFFICER].includes(role)
     },
     
-    // ADMIN or PERSONNEL
+    // ADMIN ONLY (ASSETS)
     { 
       id: "assets", 
       label: "Assets & Supplies", 
       icon: Package,
-      visible: [UserRole.SUPER_ADMIN, UserRole.EMPLOYEE].includes(role)
+      visible: role === UserRole.SUPER_ADMIN
     },
     
-    // ALL USERS EXCEPT FINANCIAL & BUDGET OFFICERS CAN ACCESS REQUESTS
+    // ADMIN or HR (REQUESTS)
     { 
       id: "requests", 
       label: "Request Management", 
       icon: Clock,
-      visible: [UserRole.SUPER_ADMIN, UserRole.HR_OFFICER, UserRole.EMPLOYEE].includes(role)
+      visible: [UserRole.SUPER_ADMIN, UserRole.HR_OFFICER].includes(role)
+    },
+    
+    // EMPLOYEE DESK PORTAL (EMPLOYEE ONLY)
+    {
+      id: "employee_portal",
+      label: "Employee Portal Desk",
+      icon: UserCheck,
+      visible: role === UserRole.EMPLOYEE
+    },
+
+    // DIVISION CHIEF (APPROVALS OFFICE COCKPIT)
+    {
+      id: "approvals",
+      label: "Approval Office Cockpit",
+      icon: ShieldCheck,
+      visible: role === UserRole.SUPER_ADMIN
+    },
+
+    // DIVISION CHIEF (USER ACCOUNT & ROLE ALLOCATION)
+    {
+      id: "user-accounts",
+      label: "User Accounts Desk",
+      icon: Settings,
+      visible: role === UserRole.SUPER_ADMIN
     },
     
     // REPORTS (ALL EXCEPT BASIC PERSONNELS)

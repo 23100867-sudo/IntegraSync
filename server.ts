@@ -50,6 +50,8 @@ interface DBStructure {
   financeAuditLogs: FinanceAuditLog[];
   notifications: Notification[];
   budgetRequests: BudgetRequestItem[];
+  activities: any[];
+  liquidationSubmissions: any[];
 }
 
 // Check and seed DB on server launch
@@ -60,6 +62,24 @@ function getInitialData(): DBStructure {
       const loaded = JSON.parse(content);
       
       let changed = false;
+
+      // Migrate existing "Admin" role string to new "Administrator / Division Chief" value
+      if (loaded.users && Array.isArray(loaded.users)) {
+        loaded.users.forEach((u: any) => {
+          if (u.role === "Admin") {
+            u.role = UserRole.SUPER_ADMIN;
+            changed = true;
+          }
+        });
+      }
+      if (loaded.notifications && Array.isArray(loaded.notifications)) {
+        loaded.notifications.forEach((n: any) => {
+          if (n.targetRole === "Admin") {
+            n.targetRole = UserRole.SUPER_ADMIN;
+            changed = true;
+          }
+        });
+      }
       if (!loaded.liquidations) {
         loaded.liquidations = [
           {
@@ -228,6 +248,95 @@ function getInitialData(): DBStructure {
           changed = true;
         }
       });
+
+      if (!loaded.activities) {
+        loaded.activities = [
+          {
+            id: "act-1",
+            activityNo: "ACT-2026-001",
+            title: "Regional Case Mediation Caravan",
+            description: "En banc travel and lodging expenses for case mediations in Region 1.",
+            dateScheduled: "2026-06-10",
+            allottedBudget: 25000,
+            budgetId: "b-2",
+            assignedEmployeeId: "EMP006",
+            status: "Active"
+          },
+          {
+            id: "act-2",
+            activityNo: "ACT-2026-002",
+            title: "Legal Research Library Subscriptions",
+            description: "Establishment of digital research accounts for legal officers.",
+            dateScheduled: "2026-06-14",
+            allottedBudget: 5000,
+            budgetId: "b-3",
+            assignedEmployeeId: "EMP006",
+            status: "Active"
+          },
+          {
+            id: "act-3",
+            activityNo: "ACT-2026-003",
+            title: "Administrative Technical Audit Workshop",
+            description: "Capacity building and audits for regional support departments.",
+            dateScheduled: "2026-06-25",
+            allottedBudget: 15000,
+            budgetId: "b-2",
+            assignedEmployeeId: "EMP006",
+            status: "Pending"
+          }
+        ];
+        changed = true;
+      }
+
+      if (!loaded.liquidationSubmissions) {
+        loaded.liquidationSubmissions = [
+          {
+            id: "liqsub-1",
+            submissionNo: "LIQSUB-2026-001",
+            activityId: "act-1",
+            employeeId: "EMP006",
+            employeeName: "Andres B. Bonifacio",
+            totalReleased: 12000,
+            totalSpent: 11500,
+            remainingBalance: 500,
+            remarks: "Hotel invoices and transportation receipts attached for review.",
+            supportingDocs: [
+              { id: "doc-1", name: "Official Vigan Lodging Receipt", type: "Invoice", filename: "vigan_lodging_receipt.pdf", uploadedAt: new Date().toISOString() }
+            ],
+            hrStatus: "Verified & Forwarded",
+            hrRemarks: "Verified matching employee and activity relationship.",
+            hrVerifiedBy: "Maria Clara V. Santos",
+            hrVerifiedAt: "2026-06-16T10:00:00Z",
+            financeStatus: "Pending Validation",
+            financeRemarks: "",
+            divisionChiefStatus: "Pending Chief Approval",
+            divisionChiefRemarks: "",
+            status: "Pending Finance Validation",
+            createdAt: "2026-06-15T09:30:00Z"
+          },
+          {
+            id: "liqsub-2",
+            submissionNo: "LIQSUB-2026-002",
+            activityId: "act-2",
+            employeeId: "EMP006",
+            employeeName: "Andres B. Bonifacio",
+            totalReleased: 5000,
+            totalSpent: 5000,
+            remainingBalance: 0,
+            remarks: "All items compiled.",
+            supportingDocs: [],
+            hrStatus: "Pending Review",
+            hrRemarks: "",
+            financeStatus: "Pending Validation",
+            financeRemarks: "",
+            divisionChiefStatus: "Pending Chief Approval",
+            divisionChiefRemarks: "",
+            status: "Pending HR Review",
+            createdAt: "2026-06-19T14:22:00Z"
+          }
+        ];
+        changed = true;
+      }
 
       if (changed) {
         fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(loaded, null, 2), "utf8");
@@ -656,7 +765,9 @@ function getInitialData(): DBStructure {
         timestamp: "2026-06-15T08:00:00Z",
         targetRole: UserRole.EMPLOYEE
       }
-    ]
+    ],
+    activities: [],
+    liquidationSubmissions: []
   };
 
   // Write initial setup
@@ -1851,6 +1962,481 @@ app.post("/api/notifications/read-all", authenticateToken, (req: any, res) => {
   saveDB();
   res.json({ status: "success", message: "All user notifications marked as read successfully" });
 });
+
+
+// ============================================
+// PARTNERSHIP & ALIGNMENT API SUITE
+// ============================================
+
+// A. USER ACCOUNT & ROLE MANAGEMENT (Administrator/Chief)
+app.get("/api/admin/users", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief privileges" });
+  }
+  res.json({ status: "success", data: db.users });
+});
+
+app.post("/api/admin/users", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief privileges" });
+  }
+  const { username, email, fullName, role } = req.body;
+  if (!username || !email || !fullName || !role) {
+    return res.status(400).json({ status: "error", message: "Please supply all required properties" });
+  }
+  
+  const existing = db.users.find(u => u.username === username || u.email === email);
+  if (existing) {
+    return res.status(400).json({ status: "error", message: "Username or Email already registered" });
+  }
+
+  const newUser = {
+    id: `u-${Date.now()}`,
+    username,
+    email,
+    fullName,
+    role,
+    employeeId: `EMP${Math.floor(100 + Math.random() * 900)}`,
+    createdAt: new Date().toISOString()
+  };
+
+  db.users.push(newUser);
+  logEvent(req.user.id, req.user.username, req.user.role, "Create User Account", `Created digital user: ${username} with role ${role}`);
+  saveDB();
+  res.json({ status: "success", data: newUser });
+});
+
+app.put("/api/admin/users/:id", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief privileges" });
+  }
+  const { id } = req.params;
+  const { fullName, email, role, username } = req.body;
+  
+  const targetUser = db.users.find(u => u.id === id);
+  if (!targetUser) {
+    return res.status(404).json({ status: "error", message: "User account not found" });
+  }
+
+  if (fullName) targetUser.fullName = fullName;
+  if (email) targetUser.email = email;
+  if (role) targetUser.role = role;
+  if (username) targetUser.username = username;
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Modify User Account", `Modified user details for: ${targetUser.username}`);
+  saveDB();
+  res.json({ status: "success", data: targetUser });
+});
+
+app.delete("/api/admin/users/:id", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief privileges" });
+  }
+  const { id } = req.params;
+  const index = db.users.findIndex(u => u.id === id);
+  if (index === -1) {
+    return res.status(404).json({ status: "error", message: "User not found" });
+  }
+  if (db.users[index].username === "admin" || db.users[index].id === req.user.id) {
+    return res.status(400).json({ status: "error", message: "Cannot remove seed superuser or your own active credential" });
+  }
+  const removed = db.users.splice(index, 1);
+  logEvent(req.user.id, req.user.username, req.user.role, "Delete User Account", `Removed user: ${removed[0].username}`);
+  saveDB();
+  res.json({ status: "success", message: "User account deleted successfully" });
+});
+
+
+// B. PERSONNEL TWO-STAGE ENDORSEMENT FLOW
+app.put("/api/requests/:id/hr-endorse", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.HR_OFFICER && req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Requires HR Officer review authorities" });
+  }
+  const { id } = req.params;
+  const { endorse, remarks } = req.body; // endorse: boolean
+
+  const request = db.requests.find(r => r.id === id);
+  if (!request) return res.status(404).json({ status: "error", message: "Personnel Request not found" });
+
+  if (endorse) {
+    request.status = RequestStatus.ENDORSED_TO_CHIEF;
+    request.remarks = remarks || "Endorsed under HR review benchmarks.";
+  } else {
+    request.status = RequestStatus.RETURNED_BY_HR;
+    request.remarks = remarks || "Returned with HR verification queries.";
+  }
+  
+  if (!db.notifications) db.notifications = [];
+  db.notifications.push({
+    id: `notif-${Date.now()}`,
+    title: endorse ? "Request Endorsed" : "Request Returned to Employee",
+    message: endorse 
+      ? `HR Officer ${req.user.fullName} endorsed ${request.requestType} for ${request.employeeName} to Division Chief.`
+      : `HR Officer ${req.user.fullName} returned ${request.requestType} with remarks: "${remarks}".`,
+    type: endorse ? "success" : "warning",
+    isRead: false,
+    timestamp: new Date().toISOString(),
+    targetRole: endorse ? UserRole.SUPER_ADMIN : UserRole.EMPLOYEE
+  });
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Endorse Personnel Request", `HR acted on request ${request.id}, status: ${request.status}`);
+  saveDB();
+  res.json({ status: "success", data: request });
+});
+
+app.put("/api/requests/:id/chief-decide", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Requires Administrator / Division Chief final authority" });
+  }
+  const { id } = req.params;
+  const { decision, remarks } = req.body; // decision: "Approved" | "Rejected" | "Returned"
+
+  const request = db.requests.find(r => r.id === id);
+  if (!request) return res.status(404).json({ status: "error", message: "Personnel Request not found" });
+
+  if (decision === "Approved") {
+    request.status = RequestStatus.APPROVED;
+    request.approvedBy = req.user.fullName;
+    request.remarks = remarks || "Approved and finalized by Division Chief.";
+
+    // If Supply request, deduct inventory
+    if (request.requestType === RequestType.SUPPLY) {
+      const supplyReq = request as any;
+      const supply = db.supplyItems.find(s => s.id === supplyReq.supplyId || s.name === supplyReq.supplyName);
+      if (supply) {
+        if (supply.availableQuantity >= supplyReq.quantity) {
+          supply.availableQuantity -= supplyReq.quantity;
+          db.supplyIssuances.push({
+            id: `si-${Date.now()}`,
+            supplyId: supply.id,
+            supplyName: supply.name,
+            issuedToId: supplyReq.employeeId,
+            issuedToName: supplyReq.employeeName,
+            quantity: supplyReq.quantity,
+            dateIssued: new Date().toISOString().split("T")[0]
+          });
+        } else {
+          request.status = RequestStatus.REJECTED;
+          request.remarks = "Disapproved: Supply requested quantity exceeds currently available warehouse balance.";
+        }
+      }
+    }
+  } else if (decision === "Returned") {
+    request.status = RequestStatus.RETURNED_BY_CHIEF;
+    request.remarks = remarks || "Returned for corrections by Division Chief.";
+  } else {
+    request.status = RequestStatus.REJECTED;
+    request.remarks = remarks || "Rejected by Division Chief.";
+  }
+
+  if (!db.notifications) db.notifications = [];
+  db.notifications.push({
+    id: `notif-${Date.now()}`,
+    title: `Request ${request.status}`,
+    message: `Division Chief Hon. Romeo M. Alcantara acted on your ${request.requestType}: ${request.status}`,
+    type: request.status === RequestStatus.APPROVED ? "success" : "warning",
+    isRead: false,
+    timestamp: new Date().toISOString(),
+    targetRole: UserRole.EMPLOYEE
+  });
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Final Chief Decision", `Chief decided ${request.id}, status: ${request.status}`);
+  saveDB();
+  res.json({ status: "success", data: request });
+});
+
+
+// C. ASSIGNED ACTIVITIES APIs
+app.get("/api/activities", authenticateToken, (req: any, res) => {
+  const { role, employeeId } = req.user;
+  if (role === UserRole.EMPLOYEE) {
+    const list = db.activities.filter(a => a.assignedEmployeeId === employeeId);
+    return res.json({ status: "success", data: list });
+  }
+  res.json({ status: "success", data: db.activities });
+});
+
+app.post("/api/activities", authenticateToken, (req: any, res) => {
+  const { title, description, dateScheduled, allottedBudget, budgetId, assignedEmployeeId } = req.body;
+  if (!title || !allottedBudget || !assignedEmployeeId) {
+    return res.status(400).json({ status: "error", message: "Missing required activity definition metrics" });
+  }
+
+  const newAct = {
+    id: `act-${Date.now()}`,
+    activityNo: `ACT-2026-0${db.activities.length + 1}`,
+    title,
+    description: description || "",
+    dateScheduled: dateScheduled || new Date().toISOString().split("T")[0],
+    allottedBudget: Number(allottedBudget),
+    budgetId: budgetId || "b-2",
+    assignedEmployeeId,
+    status: "Active"
+  };
+
+  db.activities.push(newAct);
+  logEvent(req.user.id, req.user.username, req.user.role, "Create Activity", `Created assigned employee activity: ${title}`);
+  saveDB();
+  res.json({ status: "success", data: newAct });
+});
+
+
+// D. THREE-STAGED EXHAUSTIVE LIQUIDATION SUBMISSIONS APIs
+app.get("/api/liquidation-submissions", authenticateToken, (req: any, res) => {
+  const { role, employeeId } = req.user;
+  if (role === UserRole.EMPLOYEE) {
+    const list = db.liquidationSubmissions.filter(l => l.employeeId === employeeId);
+    return res.json({ status: "success", data: list });
+  }
+  res.json({ status: "success", data: db.liquidationSubmissions });
+});
+
+app.post("/api/liquidation-submissions", authenticateToken, (req: any, res) => {
+  const { employeeId, fullName } = req.user;
+  const { activityId, totalReleased, totalSpent, remarks, supportingDocs } = req.body;
+
+  if (!activityId || !totalReleased) {
+    return res.status(400).json({ status: "error", message: "Please compile activity reference and budget disbursement values" });
+  }
+
+  const subNo = `LIQSUB-2026-0${db.liquidationSubmissions.length + 1}`;
+  const newSub = {
+    id: `liqsub-${Date.now()}`,
+    submissionNo: subNo,
+    activityId,
+    employeeId,
+    employeeName: fullName,
+    totalReleased: Number(totalReleased),
+    totalSpent: Number(totalSpent || 0),
+    remainingBalance: Number(totalReleased) - Number(totalSpent || 0),
+    remarks: remarks || "",
+    supportingDocs: supportingDocs || [],
+    hrStatus: "Pending Review",
+    hrRemarks: "",
+    financeStatus: "Pending Validation",
+    financeRemarks: "",
+    divisionChiefStatus: "Pending Chief Approval",
+    divisionChiefRemarks: "",
+    status: "Pending HR Review",
+    createdAt: new Date().toISOString()
+  };
+
+  db.liquidationSubmissions.push(newSub);
+  
+  if (!db.notifications) db.notifications = [];
+  db.notifications.push({
+    id: `notif-${Date.now()}`,
+    title: "Liquidation Report Submitted",
+    message: `${fullName} submitted a liquidation report for activity relationship evaluation.`,
+    isRead: false,
+    type: "info",
+    timestamp: new Date().toISOString(),
+    targetRole: UserRole.HR_OFFICER
+  });
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Submit Liquidation", `Submitted liquidation report: ${subNo}`);
+  saveDB();
+  res.json({ status: "success", data: newSub });
+});
+
+app.put("/api/liquidation-submissions/:id/hr-action", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.HR_OFFICER && req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Access Restricted to HR Officer verification" });
+  }
+  const { id } = req.params;
+  const { action, remarks } = req.body; // action: "Verify" | "Return"
+
+  const sub = db.liquidationSubmissions.find(l => l.id === id);
+  if (!sub) return res.status(404).json({ status: "error", message: "Submission records not found" });
+
+  if (action === "Verify") {
+    sub.hrStatus = "Verified & Forwarded";
+    sub.hrRemarks = remarks || "Relationship confirmed between employee, activity, and budget line.";
+    sub.hrVerifiedBy = req.user.fullName;
+    sub.hrVerifiedAt = new Date().toISOString();
+    sub.status = "Verified & Forwarded";
+    
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "HR Verification Completed",
+      message: `Liquidation submission ${sub.submissionNo} verified by HR & forwarded to Finance.`,
+      isRead: false,
+      type: "success",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.FINANCE_OFFICER
+    });
+  } else {
+    sub.hrStatus = "Returned by HR";
+    sub.hrRemarks = remarks || "Assigned activity/employee mismatch; returned for revision.";
+    sub.status = "Returned";
+    
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "Liquidation Submission Returned",
+      message: `Your liquidation report ${sub.submissionNo} was returned by HR: ${remarks}`,
+      isRead: false,
+      type: "warning",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.EMPLOYEE
+    });
+  }
+
+  logEvent(req.user.id, req.user.username, req.user.role, "HR Verify Liquidation", `HR evaluated liquidation ${sub.submissionNo} with action ${action}`);
+  saveDB();
+  res.json({ status: "success", data: sub });
+});
+
+app.put("/api/liquidation-submissions/:id/finance-action", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.FINANCE_OFFICER && req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Access restricted to Financial Officer validations" });
+  }
+  const { id } = req.params;
+  const { action, remarks } = req.body; // action: "Validate" | "Return"
+
+  const sub = db.liquidationSubmissions.find(l => l.id === id);
+  if (!sub) return res.status(404).json({ status: "error", message: "Submission records not found" });
+
+  if (action === "Validate") {
+    sub.financeStatus = "Validated & Endorsed";
+    sub.financeRemarks = remarks || "Financial documentations, vouchers, and ledger matching validated.";
+    sub.financeValidatedBy = req.user.fullName;
+    sub.financeValidatedAt = new Date().toISOString();
+    sub.status = "Validated & Endorsed";
+
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "Finance Validation Completed",
+      message: `Liquidation submission ${sub.submissionNo} validated and endorsed. Chief final seal pending.`,
+      isRead: false,
+      type: "success",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.SUPER_ADMIN
+    });
+  } else {
+    sub.financeStatus = "Returned by Finance";
+    sub.financeRemarks = remarks || "Receipt vouchers incomplete; returned for clarification.";
+    sub.status = "Returned";
+
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "Liquidation Submission Returned (Finance)",
+      message: `Your liquidation report ${sub.submissionNo} was returned by Finance: ${remarks}`,
+      isRead: false,
+      type: "warning",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.EMPLOYEE
+    });
+  }
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Finance Validate Liquidation", `Finance evaluated liquidation ${sub.submissionNo} with action ${action}`);
+  saveDB();
+  res.json({ status: "success", data: sub });
+});
+
+app.put("/api/liquidation-submissions/:id/chief-action", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    return res.status(403).json({ status: "error", message: "Only Division Chief can give the final seal" });
+  }
+  const { id } = req.params;
+  const { action, remarks } = req.body; // action: "Approve" | "Reject" | "Return"
+
+  const sub = db.liquidationSubmissions.find(l => l.id === id);
+  if (!sub) return res.status(404).json({ status: "error", message: "Submission records not found" });
+
+  if (action === "Approve") {
+    sub.divisionChiefStatus = "Approved";
+    sub.divisionChiefRemarks = remarks || "Final liquidation approved. Record is finalized.";
+    sub.divisionChiefApprovedBy = req.user.fullName;
+    sub.divisionChiefApprovedAt = new Date().toISOString();
+    sub.status = "Approved";
+
+    const act = db.activities.find(a => a.id === sub.activityId);
+    if (act) {
+      const budget = db.budgetAllocations.find(b => b.id === act.budgetId || b.department === act.title);
+      if (budget) {
+        budget.budgetUtilized += sub.totalSpent;
+        budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
+        budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
+      }
+    }
+
+    db.financialTransactions.push({
+      id: `tx-${Date.now()}`,
+      transactionId: `TX-LIQ-${Date.now().toString().slice(-4)}`,
+      transactionDate: new Date().toISOString().split("T")[0],
+      supplier: "Regional Expenses",
+      amount: sub.totalSpent,
+      description: `Official travel liquidation for activity: ${act ? act.title : sub.submissionNo}`,
+      status: TransactionStatus.LIQUIDATED,
+      supportingDocuments: sub.supportingDocs.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        filename: d.filename,
+        uploadedAt: d.uploadedAt,
+        validationStatus: "Validated"
+      })),
+      history: [
+        { id: `his-${Date.now()}`, status: TransactionStatus.LIQUIDATED, changedBy: req.user.fullName, changedAt: new Date().toISOString(), remarks: "Approved and finalized from Employee Liquidation submission" }
+      ],
+      employeeRef: sub.employeeId,
+      department: "Administrative and Finance Division",
+      category: "Travel",
+      createdBy: sub.employeeName,
+      dateCreated: new Date().toISOString()
+    });
+
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "Liquidation APPROVED",
+      message: `Your liquidation report ${sub.submissionNo} has received the final approved seal from Division Chief Hon. Romeo M. Alcantara!`,
+      isRead: false,
+      type: "success",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.EMPLOYEE
+    });
+  } else if (action === "Return") {
+    sub.divisionChiefStatus = "Returned by Chief";
+    sub.divisionChiefRemarks = remarks || "Returned for revisions by Division Chief.";
+    sub.status = "Returned";
+
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "Liquidation Submission Returned by Division Chief",
+      message: `Your liquidation report ${sub.submissionNo} was returned for adjustments by Division Chief: ${remarks}`,
+      isRead: false,
+      type: "warning",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.EMPLOYEE
+    });
+  } else {
+    sub.divisionChiefStatus = "Rejected";
+    sub.divisionChiefRemarks = remarks || "Disapproved by Division Chief.";
+    sub.status = "Rejected";
+
+    if (!db.notifications) db.notifications = [];
+    db.notifications.push({
+      id: `notif-${Date.now()}`,
+      title: "Liquidation Submission REJECTED",
+      message: `Your liquidation report ${sub.submissionNo} was Rejected by Division Chief: ${remarks}`,
+      isRead: false,
+      type: "urgent",
+      timestamp: new Date().toISOString(),
+      targetRole: UserRole.EMPLOYEE
+    });
+  }
+
+  logEvent(req.user.id, req.user.username, req.user.role, "Chief Final Liquidation Seal", `Chief evaluated liquidation ${sub.submissionNo} with action ${action}`);
+  saveDB();
+  res.json({ status: "success", data: sub });
+});
+
 
 // Handle serving the Vite client in development and compiled files in production
 if (process.env.NODE_ENV !== "production") {

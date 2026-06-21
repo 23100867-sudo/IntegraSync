@@ -11,6 +11,9 @@ import RequestsView from "./components/RequestsView";
 import AuditView from "./components/AuditView";
 import ReportsView from "./components/ReportsView";
 import HsacLogo from "./components/HsacLogo";
+import UserAccountsView from "./components/UserAccountsView";
+import ApprovalManagementView from "./components/ApprovalManagementView";
+import EmployeePortalView from "./components/EmployeePortalView";
 import { 
   Building, 
   Lock, 
@@ -72,8 +75,9 @@ export default function App() {
       case UserRole.BUDGET_OFFICER:
         return "budget";
       case UserRole.EMPLOYEE:
+        return "employee_portal";
       default:
-        return "assets";
+        return "dashboard";
     }
   }
 
@@ -238,6 +242,36 @@ export default function App() {
             user={user} 
             requests={requests} 
             supplies={supplies}
+            fetchSummary={fetchSummary}
+            onRefresh={triggerRefresh}
+          />
+        );
+      case "approvals":
+        if (user.role !== UserRole.SUPER_ADMIN) {
+          return <div id="access-denied" className="p-6 text-xs text-rose-500 font-mono font-bold">Unauthenticated credentials path error [RA 10173 Security Block].</div>;
+        }
+        return (
+          <ApprovalManagementView 
+            user={user} 
+            onRefresh={triggerRefresh} 
+          />
+        );
+      case "user-accounts":
+        if (user.role !== UserRole.SUPER_ADMIN) {
+          return <div id="access-denied" className="p-6 text-xs text-rose-500 font-mono font-bold">Unauthenticated credentials path error [RA 10173 Security Block].</div>;
+        }
+        return (
+          <UserAccountsView 
+            currentUser={user} 
+          />
+        );
+      case "employee_portal":
+        if (user.role !== UserRole.EMPLOYEE) {
+          return <div id="access-denied" className="p-6 text-xs text-rose-500 font-mono font-bold">Unauthenticated credentials path error [RA 10173 Security Block].</div>;
+        }
+        return (
+          <EmployeePortalView 
+            user={user} 
             fetchSummary={fetchSummary}
             onRefresh={triggerRefresh}
           />
