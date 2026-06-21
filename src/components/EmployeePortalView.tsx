@@ -69,23 +69,28 @@ export default function EmployeePortalView({ user, fetchSummary, onRefresh }: Em
     setError("");
     try {
       // 1. Load active Employee Profile
-      const empRes = await apiCall("/api/employees");
-      if (empRes.status === "success" && empRes.data) {
-        const found = empRes.data.find((e: any) => e.employeeId === user.employeeId);
-        setProfile(found || {
-          employeeId: user.employeeId || "EMP006",
-          fullName: user.fullName,
-          position: "Technical Support Staff",
-          division: "Administrative and Finance Division",
-          employmentStatus: "Permanent",
-          email: user.email,
-          address: "San Fernando, La Union",
-          dateHired: "2024-01-10",
-          contactNumber: "0917-111-2233",
-          emergencyContactName: "Lani Bonifacio",
-          emergencyContactPhone: "0917-222-3344"
-        });
+      let found = null;
+      try {
+        const empRes = await apiCall("/api/employees/me");
+        if (empRes.status === "success" && empRes.data) {
+          found = empRes.data;
+        }
+      } catch (err) {
+        console.warn("Could not load secure profile, falling back", err);
       }
+      setProfile(found || {
+        employeeId: user.employeeId || "EMP006",
+        fullName: user.fullName,
+        position: "Technical Support Staff",
+        division: "Administrative and Finance Division",
+        employmentStatus: "Permanent",
+        email: user.email,
+        address: "San Fernando, La Union",
+        dateHired: "2024-01-10",
+        contactNumber: "0917-111-2233",
+        emergencyContactName: "Lani Bonifacio",
+        emergencyContactPhone: "0917-222-3344"
+      });
 
       // 2. Load requests
       const reqRes = await apiCall("/api/requests");

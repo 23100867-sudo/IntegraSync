@@ -100,10 +100,7 @@ export default function FinanceView({
   const [addBudgetRequestForm, setAddBudgetRequestForm] = useState({ department: "Adjudication Division", amountRequested: "", requestType: "Augmentation" as const, purpose: "" });
   
   // Local state to store linked employee activities/liquidations to budgets
-  const [budgetLinks, setBudgetLinks] = useState<Array<{ id: string, liquidationNo: String, employee: string, department: string, amount: number, budgetId: string, timestamp: string }>>([
-    { id: "bl-1", liquidationNo: "LIQ-2026-001", employee: "Andres B. Bonifacio", department: "Adjudication Division", amount: 12000.00, budgetId: "b-1", timestamp: "2026-06-14T10:00:00Z" },
-    { id: "bl-2", liquidationNo: "LIQ-2026-002", employee: "Apolinario M. Mabini", department: "Legal Division", amount: 25000.00, budgetId: "b-3", timestamp: "2026-06-15T11:30:00Z" }
-  ]);
+  const [budgetLinks, setBudgetLinks] = useState<Array<{ id: string, liquidationNo: string, employee: string, department: string, amount: number, budgetId: string, timestamp: string }>>([]);
   
   const [selectedLinkingLiqId, setSelectedLinkingLiqId] = useState("");
   const [selectedLinkingBudgetId, setSelectedLinkingBudgetId] = useState("");
@@ -186,6 +183,10 @@ export default function FinanceView({
       const resSub = await apiCall("/api/liquidation-submissions");
       if (resSub.status === "success") {
         setSubmissions(resSub.data);
+      }
+      const resLnk = await apiCall("/api/finance/activity-budget-links");
+      if (resLnk.status === "success") {
+        setBudgetLinks(resLnk.data);
       }
     } catch (err) {
       console.error("Error loading supplementary finance modules", err);
@@ -1269,7 +1270,7 @@ export default function FinanceView({
             </div>
 
             {/* FINANCE LIQUIDATION VALIDATION QUEUE */}
-            {isFinanceOrAdmin && (
+            {user.role === UserRole.FINANCE_OFFICER && (
               <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                 <h2 className="text-xs font-bold font-sans text-slate-800 uppercase tracking-tight flex items-center">
                   <Clock size={15} className="mr-2 text-emerald-600 animate-pulse" />
@@ -1917,26 +1918,36 @@ export default function FinanceView({
 
                     <div className="flex items-end">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (!selectedLinkingLiqId || !selectedLinkingBudgetId) {
                             return alert("Please select both a Liquidation advance and a Budget record");
                           }
                           const liq = liquidations.find(l => l.id === selectedLinkingLiqId);
                           const bud = budgets.find(b => b.id === selectedLinkingBudgetId);
                           if (liq && bud) {
-                            const newLink = {
-                              id: `bl-${Date.now()}`,
-                              liquidationNo: liq.liquidationNo,
-                              employee: liq.employee,
-                              department: bud.department,
-                              amount: liq.amountReleased || liq.amountLiquidated || 15000.00,
-                              budgetId: bud.id,
-                              timestamp: new Date().toISOString()
-                            };
-                            setBudgetLinks([newLink, ...budgetLinks]);
-                            setSelectedLinkingLiqId("");
-                            setSelectedLinkingBudgetId("");
-                            alert(`Activity ${liq.liquidationNo} successfully mapped to budget ${bud.department}!`);
+                            try {
+                              const amountVal = liq.amountReleased || liq.amountLiquidated || 15000.00;
+                              const res = await apiCall("/api/finance/activity-budget-links", {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  liquidationNo: liq.liquidationNo,
+                                  employee: liq.employee,
+                                  department: bud.department,
+                                  amount: amountVal,
+                                  budgetId: bud.id
+                                })
+                              });
+                              if (res.status === "success") {
+                                setBudgetLinks([res.data, ...budgetLinks]);
+                                setSelectedLinkingLiqId("");
+                                setSelectedLinkingBudgetId("");
+                                alert(`Activity ${liq.liquidationNo} successfully mapped to budget ${bud.department}!`);
+                              } else {
+                                alert("Failed to establish link: " + (res.message || "Unknown error"));
+                              }
+                            } catch (e: any) {
+                              alert("Error establishing link: " + e.message);
+                            }
                           }
                         }}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold p-2.5 rounded-lg flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
@@ -2072,83 +2083,122 @@ export default function FinanceView({
                   </div>
                 </div>
 
-                {/* SAAODB & FAR PREVIEW BOARD */}
-                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-6 space-y-6">
-                  
-                  {/* Report Cover */}
-                  <div className="text-center space-y-1 py-4 border-b border-dashed">
-                    <h2 className="text-lg font-black text-slate-900 tracking-tight">STATEMENT OF ALLOTMENTS, OBLIGATIONS, DISBURSEMENTS AND BALANCES (SAAODB)</h2>
-                    <h3 className="text-xs uppercase font-mono tracking-widest text-slate-500 font-extrabold">FAR FORM NO. 1 & 1A INTEGRAL ACCRUAL PREVIEW</h3>
-                    <p className="text-[10px] text-slate-400 font-mono">Consolidated Period Target: <span className="text-blue-600 font-bold">{consolidationValue} 2026</span> | Entity Code: HSAC-RAB1-PH</p>
-                  </div>
+                 {/* SAAODB & FAR PREVIEW BOARD */}
+                 <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-6 space-y-6">
+                   
+                   {(() => {
+                     const SAAODBTotals = budgets.reduce((totals, b) => {
+                       const deptTxns = (transactions || []).filter(t => t.department.toLowerCase() === b.department.toLowerCase());
+                       
+                       const txObligations = deptTxns
+                         .filter(t => t.status === "Validated" || t.status === "Liquidated")
+                         .reduce((sum, t) => sum + t.amount, 0);
+                         
+                       const txDisbursements = deptTxns
+                         .filter(t => t.status === "Liquidated")
+                         .reduce((sum, t) => sum + t.amount, 0);
 
-                  {/* Summary grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1">
-                    <div className="p-3 bg-slate-50 border rounded-xl">
-                      <p className="text-[9px] font-mono text-slate-400 uppercase">Consolidated Allotment</p>
-                      <p className="text-xs font-black text-slate-800 pt-1">
-                        {formatCurrency(budgets.reduce((acc, b) => acc + b.budgetAllocation, 0))}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-slate-50 border rounded-xl">
-                      <p className="text-[9px] font-mono text-slate-400 uppercase">Consolidated Obligations</p>
-                      <p className="text-xs font-black text-indigo-700 pt-1">
-                        {formatCurrency(budgets.reduce((acc, b) => acc + b.budgetUtilized * 0.92, 0))}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-slate-50 border rounded-xl">
-                      <p className="text-[9px] font-mono text-slate-400 uppercase">Consolidated disbursements</p>
-                      <p className="text-xs font-black text-emerald-800 pt-1">
-                        {formatCurrency(budgets.reduce((acc, b) => acc + b.budgetUtilized * 0.81, 0))}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-slate-50 border rounded-xl">
-                      <p className="text-[9px] font-mono text-slate-400 uppercase">Unpaid Balance Of Allotment</p>
-                      <p className="text-xs font-black text-rose-700 pt-1">
-                        {formatCurrency(budgets.reduce((acc, b) => acc + (b.budgetAllocation - (b.budgetUtilized * 0.92)), 0))}
-                      </p>
-                    </div>
-                  </div>
+                       const obligations = txObligations > 0 ? txObligations : b.budgetUtilized * 0.92;
+                       const disbursements = txDisbursements > 0 ? txDisbursements : b.budgetUtilized * 0.81;
 
-                  {/* Dynamic populated row records */}
-                  <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-slate-900 text-white font-mono uppercase text-[9px] tracking-wide border-b">
-                          <th className="p-3">Accrued Program (PAP) Class</th>
-                          <th className="p-3 text-right">Approved Allotment</th>
-                          <th className="p-3 text-right">Registered Obligations</th>
-                          <th className="p-3 text-right">Actual Disbursements</th>
-                          <th className="p-3 text-right">Unpaid Obligations</th>
-                          <th className="p-3 text-right">Remaining Balance</th>
-                          <th className="p-3 text-center">Coverage Burn</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y font-mono text-[10px]">
-                        {budgets.map((b) => {
-                          const obligations = b.budgetUtilized * 0.92;
-                          const disbursements = b.budgetUtilized * 0.81;
-                          const unpaidObs = obligations - disbursements;
-                          const remAllotment = b.budgetAllocation - obligations;
-                          return (
-                            <tr key={b.id} className="hover:bg-slate-50/50">
-                              <td className="p-3 font-sans font-bold text-slate-800">{b.department}</td>
-                              <td className="p-3 text-right font-bold">{formatCurrency(b.budgetAllocation)}</td>
-                              <td className="p-3 text-right text-indigo-700 font-semibold">{formatCurrency(obligations)}</td>
-                              <td className="p-3 text-right text-emerald-700 font-semibold">{formatCurrency(disbursements)}</td>
-                              <td className="p-3 text-right text-slate-600">{formatCurrency(unpaidObs)}</td>
-                              <td className="p-3 text-right font-black text-rose-750">{formatCurrency(remAllotment)}</td>
-                              <td className="p-3 text-center">
-                                <span className="bg-blue-50 text-blue-900 rounded font-bold px-1 py-0.5 text-[9px]">
-                                  {Math.round((obligations / b.budgetAllocation) * 100)}% utilized
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                       totals.allotment += b.budgetAllocation;
+                       totals.obligations += obligations;
+                       totals.disbursements += disbursements;
+                       return totals;
+                     }, { allotment: 0, obligations: 0, disbursements: 0 });
+
+                     const unpaidAllotmentBalance = SAAODBTotals.allotment - SAAODBTotals.obligations;
+
+                     return (
+                       <>
+                         {/* Report Cover */}
+                         <div className="text-center space-y-1 py-4 border-b border-dashed">
+                           <h2 className="text-lg font-black text-slate-900 tracking-tight">STATEMENT OF ALLOTMENTS, OBLIGATIONS, DISBURSEMENTS AND BALANCES (SAAODB)</h2>
+                           <h3 className="text-xs uppercase font-mono tracking-widest text-slate-500 font-extrabold">FAR FORM NO. 1 & 1A INTEGRAL ACCRUAL PREVIEW</h3>
+                           <p className="text-[10px] text-slate-400 font-mono">Consolidated Period Target: <span className="text-blue-600 font-bold">{consolidationValue} 2026</span> | Entity Code: HSAC-RAB1-PH</p>
+                         </div>
+
+                         {/* Summary grid */}
+                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1">
+                           <div className="p-3 bg-slate-50 border rounded-xl">
+                             <p className="text-[9px] font-mono text-slate-400 uppercase">Consolidated Allotment</p>
+                             <p className="text-xs font-black text-slate-800 pt-1">
+                               {formatCurrency(SAAODBTotals.allotment)}
+                             </p>
+                           </div>
+                           <div className="p-3 bg-slate-50 border rounded-xl">
+                             <p className="text-[9px] font-mono text-slate-400 uppercase">Consolidated Obligations</p>
+                             <p className="text-xs font-black text-indigo-700 pt-1">
+                               {formatCurrency(SAAODBTotals.obligations)}
+                             </p>
+                           </div>
+                           <div className="p-3 bg-slate-50 border rounded-xl">
+                             <p className="text-[9px] font-mono text-slate-400 uppercase">Consolidated disbursements</p>
+                             <p className="text-xs font-black text-emerald-800 pt-1">
+                               {formatCurrency(SAAODBTotals.disbursements)}
+                             </p>
+                           </div>
+                           <div className="p-3 bg-slate-50 border rounded-xl">
+                             <p className="text-[9px] font-mono text-slate-400 uppercase">Unpaid Balance Of Allotment</p>
+                             <p className="text-xs font-black text-rose-700 pt-1">
+                               {formatCurrency(unpaidAllotmentBalance)}
+                             </p>
+                           </div>
+                         </div>
+
+                         {/* Dynamic populated row records */}
+                         <div className="overflow-x-auto rounded-lg border">
+                           <table className="w-full text-left text-xs border-collapse">
+                             <thead>
+                               <tr className="bg-slate-900 text-white font-mono uppercase text-[9px] tracking-wide border-b">
+                                 <th className="p-3">Accrued Program (PAP) Class</th>
+                                 <th className="p-3 text-right">Approved Allotment</th>
+                                 <th className="p-3 text-right">Registered Obligations</th>
+                                 <th className="p-3 text-right">Actual Disbursements</th>
+                                 <th className="p-3 text-right">Unpaid Obligations</th>
+                                 <th className="p-3 text-right">Remaining Balance</th>
+                                 <th className="p-3 text-center">Coverage Burn</th>
+                               </tr>
+                             </thead>
+                             <tbody className="divide-y font-mono text-[10px]">
+                               {budgets.map((b) => {
+                                 const deptTxns = (transactions || []).filter(t => t.department.toLowerCase() === b.department.toLowerCase());
+                                 
+                                 const txObligations = deptTxns
+                                   .filter(t => t.status === "Validated" || t.status === "Liquidated")
+                                   .reduce((sum, t) => sum + t.amount, 0);
+                                   
+                                 const txDisbursements = deptTxns
+                                   .filter(t => t.status === "Liquidated")
+                                   .reduce((sum, t) => sum + t.amount, 0);
+
+                                 const obligations = txObligations > 0 ? txObligations : b.budgetUtilized * 0.92;
+                                 const disbursements = txDisbursements > 0 ? txDisbursements : b.budgetUtilized * 0.81;
+
+                                 const unpaidObs = obligations - disbursements;
+                                 const remAllotment = b.budgetAllocation - obligations;
+                                 return (
+                                   <tr key={b.id} className="hover:bg-slate-50/50">
+                                     <td className="p-3 font-sans font-bold text-slate-800">{b.department}</td>
+                                     <td className="p-3 text-right font-bold">{formatCurrency(b.budgetAllocation)}</td>
+                                     <td className="p-3 text-right text-indigo-700 font-semibold">{formatCurrency(obligations)}</td>
+                                     <td className="p-3 text-right text-emerald-700 font-semibold">{formatCurrency(disbursements)}</td>
+                                     <td className="p-3 text-right text-slate-600">{formatCurrency(unpaidObs)}</td>
+                                     <td className="p-3 text-right font-black text-rose-750">{formatCurrency(remAllotment)}</td>
+                                     <td className="p-3 text-center">
+                                       <span className="bg-blue-50 text-blue-900 rounded font-bold px-1 py-0.5 text-[9px]">
+                                         {Math.round((obligations / b.budgetAllocation) * 100)}% utilized
+                                       </span>
+                                     </td>
+                                   </tr>
+                                 );
+                               })}
+                             </tbody>
+                           </table>
+                         </div>
+                       </>
+                     );
+                   })()}
 
                   {/* Printing / Finalization controllers */}
                   <div className="p-4 bg-slate-50 rounded-xl flex flex-col md:flex-row justify-between items-center gap-3">

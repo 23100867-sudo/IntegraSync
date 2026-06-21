@@ -96,15 +96,32 @@ export default function App() {
 
   async function syncDatabase() {
     try {
+      const isEmployee = user?.role === UserRole.EMPLOYEE;
+      
+      const fetchOrNull = async (url: string) => {
+        try {
+          return await apiCall(url);
+        } catch (e) {
+          console.warn(`Silently bypassed background fetch for ${url}:`, e);
+          return { status: "error", message: "bypass" };
+        }
+      };
+
       const [empRes, finRes, astRes, supRes, reqRes] = await Promise.all([
-        apiCall("/api/employees"),
-        apiCall("/api/financial-transactions"),
-        apiCall("/api/assets"),
-        apiCall("/api/supplies"),
-        apiCall("/api/requests")
+        isEmployee ? fetchOrNull("/api/employees/me") : fetchOrNull("/api/employees"),
+        isEmployee ? { status: "success", data: [] } : fetchOrNull("/api/financial-transactions"),
+        isEmployee ? { status: "success", data: [] } : fetchOrNull("/api/assets"),
+        fetchOrNull("/api/supplies"),
+        fetchOrNull("/api/requests")
       ]);
 
-      if (empRes.status === "success") setEmployees(empRes.data);
+      if (empRes.status === "success" && empRes.data) {
+        if (isEmployee) {
+          setEmployees([empRes.data]);
+        } else {
+          setEmployees(empRes.data);
+        }
+      }
       if (finRes.status === "success") setTransactions(finRes.data);
       if (astRes.status === "success") setAssets(astRes.data);
       if (supRes.status === "success") setSupplies(supRes.data);

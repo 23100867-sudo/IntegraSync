@@ -41,7 +41,7 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
   const [selectedLiqSub, setSelectedLiqSub] = useState<any>(null);
 
   useEffect(() => {
-    if (user.role === UserRole.HR_OFFICER || user.role === UserRole.SUPER_ADMIN) {
+    if (user.role === UserRole.HR_OFFICER) {
       fetchLiquidationSubmissions();
     }
   }, [user.role, requests]);
@@ -212,8 +212,8 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
   // Determine if a user has approval authority over an active request
   function canUserApprove(req: AnyRequest): boolean {
     const role = user.role;
-    // HR is the only one who can endorse to chief (Admin can too)
-    return (role === UserRole.HR_OFFICER || role === UserRole.SUPER_ADMIN) && req.status === RequestStatus.PENDING;
+    // HR is the only one who can endorse to chief
+    return role === UserRole.HR_OFFICER && req.status === RequestStatus.PENDING;
   }
 
   // Classify request lists based on perspective
@@ -313,8 +313,8 @@ export default function RequestsView({ user, requests, supplies, fetchSummary, o
         </section>
       )}
 
-      {/* HR LIQUIDATION VERIFICATION QUEUE (FOR HR OFFICER or CHIEF) */}
-      {(user.role === UserRole.HR_OFFICER || user.role === UserRole.SUPER_ADMIN) && (
+      {/* HR LIQUIDATION VERIFICATION QUEUE (FOR HR OFFICER ONLY) */}
+      {user.role === UserRole.HR_OFFICER && (
         <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
           <h2 className="text-xs font-bold font-sans text-slate-800 uppercase tracking-tight flex items-center">
             <ClipboardList size={15} className="mr-2 text-blue-500 animate-pulse" />

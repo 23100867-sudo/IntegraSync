@@ -294,6 +294,7 @@ export interface Notification {
   isRead: boolean;
   timestamp: string;
   targetRole?: string; // If undefined, visible to everyone. If specified, only visible to users with this role
+  targetEmployeeId?: string; // If specified, only visible specifically to this individual employee
 }
 
 export interface Activity {

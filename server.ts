@@ -52,6 +52,7 @@ interface DBStructure {
   budgetRequests: BudgetRequestItem[];
   activities: any[];
   liquidationSubmissions: any[];
+  activityBudgetLinks: any[];
 }
 
 // Check and seed DB on server launch
@@ -334,6 +335,14 @@ function getInitialData(): DBStructure {
             status: "Pending HR Review",
             createdAt: "2026-06-19T14:22:00Z"
           }
+        ];
+        changed = true;
+      }
+
+      if (!loaded.activityBudgetLinks) {
+        loaded.activityBudgetLinks = [
+          { id: "bl-1", liquidationNo: "LIQ-2026-001", employee: "Andres B. Bonifacio", department: "Adjudication Division", amount: 12000.00, budgetId: "b-1", timestamp: "2026-06-14T10:00:00Z" },
+          { id: "bl-2", liquidationNo: "LIQ-2026-002", employee: "Apolinario M. Mabini", department: "Legal Division", amount: 25000.00, budgetId: "b-3", timestamp: "2026-06-15T11:30:00Z" }
         ];
         changed = true;
       }
@@ -767,7 +776,11 @@ function getInitialData(): DBStructure {
       }
     ],
     activities: [],
-    liquidationSubmissions: []
+    liquidationSubmissions: [],
+    activityBudgetLinks: [
+      { id: "bl-1", liquidationNo: "LIQ-2026-001", employee: "Andres B. Bonifacio", department: "Adjudication Division", amount: 12000.00, budgetId: "b-1", timestamp: "2026-06-14T10:00:00Z" },
+      { id: "bl-2", liquidationNo: "LIQ-2026-002", employee: "Apolinario M. Mabini", department: "Legal Division", amount: 25000.00, budgetId: "b-3", timestamp: "2026-06-15T11:30:00Z" }
+    ]
   };
 
   // Write initial setup
@@ -911,7 +924,19 @@ app.get("/api/sessions/current", authenticateToken, (req: any, res) => {
 });
 
 // 2. Employee CRUD & Personnel Details
-app.get("/api/employees", authenticateToken, (req, res) => {
+app.get("/api/employees/me", authenticateToken, (req: any, res) => {
+  const employeeId = req.user.employeeId;
+  const employee = db.employees.find(e => e.employeeId === employeeId);
+  if (!employee) {
+    return res.status(404).json({ status: "error", message: "Personnel profile not found for this user account" });
+  }
+  res.json({ status: "success", data: employee });
+});
+
+app.get("/api/employees", authenticateToken, (req: any, res) => {
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.HR_OFFICER) {
+    return res.status(403).json({ status: "error", message: "Unauthorized: Full employee list is confidential and restricted." });
+  }
   res.json({ status: "success", data: db.employees });
 });
 
@@ -1289,74 +1314,54 @@ app.post("/api/financial-transactions/:id/documents/:docId/replace", authenticat
   res.json({ status: "success", data: txn });
 });
 
-// --- NEW LIQUIDATION WORKFLOW ENDPOINTS ---
+// --- NEW LIQUIDATION WORKFLOW ENDPOINTS (READ-ONLY MONITORING FOR LEGACY CONTEXT) ---
 app.get("/api/finance/liquidations", authenticateToken, (req, res) => {
   res.json({ status: "success", data: db.liquidations || [] });
 });
 
 app.post("/api/finance/liquidations", authenticateToken, (req: any, res) => {
-  const data = req.body;
-  const newLiq = {
-    id: `liq-${Date.now()}`,
-    liquidationNo: `LIQ-2026-${Math.floor(100 + Math.random() * 900)}`,
-    requestRef: data.requestRef || `REQ-${Math.floor(1000 + Math.random() * 9000)}`,
-    employee: data.employee || req.user.fullName,
-    department: data.department || req.user.division || "Administrative and Finance Division",
-    amountReleased: Number(data.amountReleased || 0),
-    amountLiquidated: Number(data.amountLiquidated || 0),
-    remainingBalance: Number(data.amountReleased || 0) - Number(data.amountLiquidated || 0),
-    liquidationDate: data.liquidationDate || new Date().toISOString().split("T")[0],
-    status: data.status || "Pending Submission",
-    notes: data.notes || "",
-    createdAt: new Date().toISOString()
-  };
-
-  if (!db.liquidations) db.liquidations = [];
-  db.liquidations.push(newLiq as any);
-  
-  logFinanceAudit(req.user.fullName, "Create Liquidation Request", "Liquidation Monitoring", "None", newLiq.status);
-  logEvent(req.user.id, req.user.username, req.user.role, "Create Liquidation", `Created liquidation request ${newLiq.liquidationNo}`);
-  saveDB();
-  res.json({ status: "success", data: newLiq });
+  return res.status(403).json({
+    status: "error",
+    message: "Direct budget liquidation additions have been deprecated for compliance safety. All liquidation processing must begin in the Employee Portal via /api/liquidation-submissions, passing through HR verification, Finance validation, and the Division Chief final approved seal."
+  });
 });
 
 app.put("/api/finance/liquidations/:id/status", authenticateToken, (req: any, res) => {
-  const { id } = req.params;
-  const { status, note, amountLiquidated } = req.body;
+  return res.status(403).json({
+    status: "error",
+    message: "Direct adjustment of liquidation statuses is disabled. Status updates must proceed natively through the multi-stage HR-verification to Chief-approval workflow via /api/liquidation-submissions."
+  });
+});
 
-  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.FINANCE_OFFICER) {
-    return res.status(403).json({ status: "error", message: "Only Finance Officers can adjust liquidation statuses." });
+// --- DYNAMIC PERMANENT ACTIVITY-BUDGET LINKING ENDPOINTS ---
+app.get("/api/finance/activity-budget-links", authenticateToken, (req, res) => {
+  res.json({ status: "success", data: db.activityBudgetLinks || [] });
+});
+
+app.post("/api/finance/activity-budget-links", authenticateToken, (req: any, res) => {
+  const { liquidationNo, employee, department, amount, budgetId } = req.body;
+  if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
+    return res.status(403).json({ status: "error", message: "Only Budget or Finance Officers can map activities to budgets." });
   }
 
-  const liq = db.liquidations.find(l => l.id === id);
-  if (!liq) {
-    return res.status(404).json({ status: "error", message: "Liquidation record not found" });
-  }
+  const newLink = {
+    id: `bl-${Date.now()}`,
+    liquidationNo,
+    employee,
+    department,
+    amount: Number(amount),
+    budgetId,
+    timestamp: new Date().toISOString()
+  };
 
-  const oldStatus = liq.status;
-  liq.status = status;
-  if (note !== undefined) liq.notes = note;
-  if (amountLiquidated !== undefined) {
-    liq.amountLiquidated = Number(amountLiquidated);
-    liq.remainingBalance = liq.amountReleased - liq.amountLiquidated;
-  }
-
-  if (status === "Completed") {
-    liq.approvedBy = req.user.fullName;
-    // Update budget utilizing dynamically
-    const budget = db.budgetAllocations.find(b => b.department === liq.department);
-    if (budget) {
-      budget.budgetUtilized += liq.amountLiquidated;
-      budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
-      budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
-      logFinanceAudit(req.user.fullName, "Update Budget Utilization", "Budget Monitoring", `${budget.budgetUtilized - liq.amountLiquidated}`, `${budget.budgetUtilized}`);
-    }
-  }
-
-  logFinanceAudit(req.user.fullName, "Update Liquidation Workflow", "Liquidation Monitoring", oldStatus, status);
-  logEvent(req.user.id, req.user.username, req.user.role, "Update Liquidation", `Updated liquidation request ${liq.liquidationNo} to state: ${status}`);
+  if (!db.activityBudgetLinks) db.activityBudgetLinks = [];
+  db.activityBudgetLinks.unshift(newLink);
+  
+  logFinanceAudit(req.user.fullName, "Map Activity To Budget", "Budget Linking", "None", `${liquidationNo} linked to ${budgetId}`);
+  logEvent(req.user.id, req.user.username, req.user.role, "Map Activity Budget", `Linked activity ${liquidationNo} to budget total`);
   saveDB();
-  res.json({ status: "success", data: liq });
+
+  res.json({ status: "success", data: newLink });
 });
 
 // --- NEW BUDGET MANAGEMENT ENDPOINTS ---
@@ -1365,14 +1370,33 @@ app.get("/api/finance/budgets", authenticateToken, (req, res) => {
 });
 
 app.post("/api/finance/budgets", authenticateToken, (req: any, res) => {
-  const { department, budgetAllocation } = req.body;
+  const { department, budgetAllocation, approvedRequestId } = req.body;
   if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
     return res.status(403).json({ status: "error", message: "Unauthorized. Requires Budget Officer or Admin." });
   }
+
+  // If NOT Super Admin, they must provide a valid approved request ID to change/create allocation totals
+  if (req.user.role !== UserRole.SUPER_ADMIN) {
+    if (!approvedRequestId) {
+      return res.status(403).json({ 
+        status: "error", 
+        message: "Direct budget allocation adjustments that alter approved totals require Chief concurrence. Please submit a Budget Request first, or provide an Approved Request ID." 
+      });
+    }
+    const reqItem = db.budgetRequests?.find(r => r.id === approvedRequestId && r.status === "Approved");
+    if (!reqItem) {
+      return res.status(403).json({ 
+        status: "error", 
+        message: "The provided Request ID is either invalid or not yet approved by the Division Chief." 
+      });
+    }
+  }
+
   const existing = db.budgetAllocations.find(b => b.department.toLowerCase() === department.toLowerCase());
   if (existing) {
     return res.status(400).json({ status: "error", message: "Allocation for department already exists. Please edit instead." });
   }
+
   const newBudget: BudgetAllocation = {
     id: `b-${Date.now()}`,
     department,
@@ -1390,7 +1414,7 @@ app.post("/api/finance/budgets", authenticateToken, (req: any, res) => {
 
 app.put("/api/finance/budgets/:id", authenticateToken, (req: any, res) => {
   const { id } = req.params;
-  const { budgetAllocation } = req.body;
+  const { budgetAllocation, approvedRequestId } = req.body;
 
   if (req.user.role !== UserRole.SUPER_ADMIN && req.user.role !== UserRole.BUDGET_OFFICER && req.user.role !== UserRole.FINANCE_OFFICER) {
     return res.status(403).json({ status: "error", message: "Only Budget or Finance Officers can adjust budget allocations." });
@@ -1401,8 +1425,27 @@ app.put("/api/finance/budgets/:id", authenticateToken, (req: any, res) => {
     return res.status(404).json({ status: "error", message: "Budget allocation record not found" });
   }
 
+  const targetAmount = Number(budgetAllocation);
   const oldAllocation = budget.budgetAllocation;
-  budget.budgetAllocation = Number(budgetAllocation);
+
+  // If the total allocation is being changed and NOT Super Admin, require valid approved budgetRequestId
+  if (targetAmount !== oldAllocation && req.user.role !== UserRole.SUPER_ADMIN) {
+    if (!approvedRequestId) {
+      return res.status(403).json({ 
+        status: "error", 
+        message: "Any change to the approved allocation amount requires Division Chief concurrence. Please submit a formal Budget Request first, or provide an Approved Request ID." 
+      });
+    }
+    const reqItem = db.budgetRequests?.find(r => r.id === approvedRequestId && r.status === "Approved");
+    if (!reqItem) {
+      return res.status(403).json({ 
+        status: "error", 
+        message: "The provided Request ID is either invalid or not yet approved by the Division Chief." 
+      });
+    }
+  }
+
+  budget.budgetAllocation = targetAmount;
   budget.remainingBudget = budget.budgetAllocation - budget.budgetUtilized;
   budget.budgetPercentageUsed = Math.round((budget.budgetUtilized / budget.budgetAllocation) * 100);
 
@@ -1913,8 +1956,15 @@ app.get("/api/notifications", authenticateToken, (req: any, res) => {
     db.notifications = [];
   }
   const role = req.user.role;
-  // Send notifications belonging to this role OR globals (which have no targetRole)
-  const filtered = db.notifications.filter(n => !n.targetRole || n.targetRole === role);
+  const employeeId = req.user.employeeId;
+  // Send notifications belonging to this role OR globals (which have no targetRole), filtered by employeeId if targetRole is Employee
+  const filtered = db.notifications.filter(n => {
+    const roleMatches = !n.targetRole || n.targetRole === role;
+    if (role === UserRole.EMPLOYEE) {
+      return roleMatches && (!n.targetEmployeeId || n.targetEmployeeId === employeeId);
+    }
+    return roleMatches;
+  });
   res.json({ status: "success", data: filtered });
 });
 
@@ -1938,9 +1988,17 @@ app.post("/api/notifications/read-all", authenticateToken, (req: any, res) => {
     db.notifications = [];
   }
   const role = req.user.role;
+  const employeeId = req.user.employeeId;
   db.notifications.forEach(n => {
-    if (!n.targetRole || n.targetRole === role) {
-      n.isRead = true;
+    const roleMatches = !n.targetRole || n.targetRole === role;
+    if (role === UserRole.EMPLOYEE) {
+      if (roleMatches && (!n.targetEmployeeId || n.targetEmployeeId === employeeId)) {
+        n.isRead = true;
+      }
+    } else {
+      if (roleMatches) {
+        n.isRead = true;
+      }
     }
   });
   saveDB();
@@ -2035,7 +2093,7 @@ app.delete("/api/admin/users/:id", authenticateToken, (req: any, res) => {
 
 // B. PERSONNEL TWO-STAGE ENDORSEMENT FLOW
 app.put("/api/requests/:id/hr-endorse", authenticateToken, (req: any, res) => {
-  if (req.user.role !== UserRole.HR_OFFICER && req.user.role !== UserRole.SUPER_ADMIN) {
+  if (req.user.role !== UserRole.HR_OFFICER) {
     return res.status(403).json({ status: "error", message: "Requires HR Officer review authorities" });
   }
   const { id } = req.params;
@@ -2062,7 +2120,8 @@ app.put("/api/requests/:id/hr-endorse", authenticateToken, (req: any, res) => {
     type: endorse ? "success" : "warning",
     isRead: false,
     timestamp: new Date().toISOString(),
-    targetRole: endorse ? UserRole.SUPER_ADMIN : UserRole.EMPLOYEE
+    targetRole: endorse ? UserRole.SUPER_ADMIN : UserRole.EMPLOYEE,
+    targetEmployeeId: endorse ? undefined : request.employeeId
   });
 
   logEvent(req.user.id, req.user.username, req.user.role, "Endorse Personnel Request", `HR acted on request ${request.id}, status: ${request.status}`);
@@ -2123,7 +2182,8 @@ app.put("/api/requests/:id/chief-decide", authenticateToken, (req: any, res) => 
     type: request.status === RequestStatus.APPROVED ? "success" : "warning",
     isRead: false,
     timestamp: new Date().toISOString(),
-    targetRole: UserRole.EMPLOYEE
+    targetRole: UserRole.EMPLOYEE,
+    targetEmployeeId: request.employeeId
   });
 
   logEvent(req.user.id, req.user.username, req.user.role, "Final Chief Decision", `Chief decided ${request.id}, status: ${request.status}`);
@@ -2277,7 +2337,7 @@ app.put("/api/liquidation-submissions/:id/resubmit", authenticateToken, (req: an
 });
 
 app.put("/api/liquidation-submissions/:id/hr-action", authenticateToken, (req: any, res) => {
-  if (req.user.role !== UserRole.HR_OFFICER && req.user.role !== UserRole.SUPER_ADMIN) {
+  if (req.user.role !== UserRole.HR_OFFICER) {
     return res.status(403).json({ status: "error", message: "Access Restricted to HR Officer verification" });
   }
   const { id } = req.params;
@@ -2316,7 +2376,8 @@ app.put("/api/liquidation-submissions/:id/hr-action", authenticateToken, (req: a
       isRead: false,
       type: "warning",
       timestamp: new Date().toISOString(),
-      targetRole: UserRole.EMPLOYEE
+      targetRole: UserRole.EMPLOYEE,
+      targetEmployeeId: sub.employeeId
     });
   }
 
@@ -2326,7 +2387,7 @@ app.put("/api/liquidation-submissions/:id/hr-action", authenticateToken, (req: a
 });
 
 app.put("/api/liquidation-submissions/:id/finance-action", authenticateToken, (req: any, res) => {
-  if (req.user.role !== UserRole.FINANCE_OFFICER && req.user.role !== UserRole.SUPER_ADMIN) {
+  if (req.user.role !== UserRole.FINANCE_OFFICER) {
     return res.status(403).json({ status: "error", message: "Access restricted to Financial Officer validations" });
   }
   const { id } = req.params;
@@ -2365,7 +2426,8 @@ app.put("/api/liquidation-submissions/:id/finance-action", authenticateToken, (r
       isRead: false,
       type: "warning",
       timestamp: new Date().toISOString(),
-      targetRole: UserRole.EMPLOYEE
+      targetRole: UserRole.EMPLOYEE,
+      targetEmployeeId: sub.employeeId
     });
   }
 
@@ -2435,7 +2497,8 @@ app.put("/api/liquidation-submissions/:id/chief-action", authenticateToken, (req
       isRead: false,
       type: "success",
       timestamp: new Date().toISOString(),
-      targetRole: UserRole.EMPLOYEE
+      targetRole: UserRole.EMPLOYEE,
+      targetEmployeeId: sub.employeeId
     });
   } else if (action === "Return") {
     sub.divisionChiefStatus = "Returned by Chief";
@@ -2450,7 +2513,8 @@ app.put("/api/liquidation-submissions/:id/chief-action", authenticateToken, (req
       isRead: false,
       type: "warning",
       timestamp: new Date().toISOString(),
-      targetRole: UserRole.EMPLOYEE
+      targetRole: UserRole.EMPLOYEE,
+      targetEmployeeId: sub.employeeId
     });
   } else {
     sub.divisionChiefStatus = "Rejected";
@@ -2465,7 +2529,8 @@ app.put("/api/liquidation-submissions/:id/chief-action", authenticateToken, (req
       isRead: false,
       type: "urgent",
       timestamp: new Date().toISOString(),
-      targetRole: UserRole.EMPLOYEE
+      targetRole: UserRole.EMPLOYEE,
+      targetEmployeeId: sub.employeeId
     });
   }
 
